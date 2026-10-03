@@ -3,8 +3,23 @@
 
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct MarioState;
 struct Controller;
+
+struct CrossmodRenderPose {
+    unsigned long frame;
+    float camera_x;
+    float camera_y;
+    float camera_z;
+    float yaw;
+    float pitch;
+    float roll;
+    float fov;
+};
 
 void crossmod_bridge_init(void);
 void crossmod_bridge_shutdown(void);
@@ -18,5 +33,12 @@ bool crossmod_bridge_active(void);
  */
 void crossmod_bridge_apply_controller(struct Controller *controller);
 void crossmod_bridge_after_mario_update(struct MarioState *m);
+
+/* Current host camera for Universal-Modder-style frame reprojection. */
+bool crossmod_bridge_get_render_pose(struct CrossmodRenderPose *out_pose);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

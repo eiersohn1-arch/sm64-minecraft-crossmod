@@ -64,6 +64,9 @@ static unsigned long s_last_processed_attack_serial;
 static unsigned long s_last_processed_use_serial;
 static unsigned long s_last_hit_attack_serial;
 static int s_last_hit_count;
+static unsigned long s_host_frame;
+static struct CrossmodRenderPose s_render_pose;
+static int s_render_pose_valid;
 
 void crossmod_bridge_init(void) {
     crossmod_ws_start();
@@ -75,6 +78,17 @@ void crossmod_bridge_shutdown(void) {
 
 bool crossmod_bridge_active(void) {
     return s_has_player != 0 && crossmod_ws_connected();
+}
+
+bool crossmod_bridge_get_render_pose(
+        struct CrossmodRenderPose *out_pose
+) {
+    if (!s_render_pose_valid || out_pose == NULL) {
+        return false;
+    }
+
+    *out_pose = s_render_pose;
+    return true;
 }
 
 static int parse_player_packet(
@@ -495,7 +509,7 @@ static void crossmod_process_combat(struct MarioState *m) {
 }
 
 static void send_state(const struct MarioState *m) {
-    if (!crossmod_ws_connected() || m == NULL) {
+    if (m == NULL) {
         return;
     }
 
@@ -530,6 +544,22 @@ static void send_state(const struct MarioState *m) {
     float body_yaw =
             -(float) m->faceAngle[1] * 360.0f / 65536.0f;
 
+    unsigned long host_frame = ++s_host_frame;
+
+    s_render_pose.frame = host_frame;
+    s_render_pose.camera_x = camera_x;
+    s_render_pose.camera_y = camera_y;
+    s_render_pose.camera_z = camera_z;
+    s_render_pose.yaw = yaw;
+    s_render_pose.pitch = pitch;
+    s_render_pose.roll = 0.0f;
+    s_render_pose.fov = sFOVState.fov;
+    s_render_pose_valid = 1;
+
+    if (!crossmod_ws_connected()) {
+        return;
+    }
+
     u32 save_flags = 0;
     u32 course_star_flags = 0;
 
@@ -558,7 +588,7 @@ static void send_state(const struct MarioState *m) {
             "\"save\":%lu,\"courseStars\":%lu,"
             "\"coins\":%d,\"lives\":%d,\"hud\":%d,\"timer\":%u,"
             "\"hitSerial\":%lu,\"hitCount\":%d}",
-            s_player.sequence,
+            host_frame,
             camera_x,
             camera_y,
             camera_z,

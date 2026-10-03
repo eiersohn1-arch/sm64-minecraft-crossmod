@@ -1,6 +1,7 @@
 package dev.eiersohn.sm64cross;
 
 import dev.eiersohn.sm64cross.command.Sm64Commands;
+import dev.eiersohn.sm64cross.hub.CastleHubService;
 import dev.eiersohn.sm64cross.importer.CourseBuildService;
 import dev.eiersohn.sm64cross.importer.CourseRuntimeService;
 import dev.eiersohn.sm64cross.progress.StarCollector;
@@ -33,6 +34,7 @@ public final class Sm64CrossMod implements ModInitializer {
         StarCollector.register();
         CourseBuildService.register();
         CourseRuntimeService.register();
+        CastleHubService.register();
 
         ItemGroupEvents.modifyEntriesEvent(CreativeModeTabs.TOOLS_AND_UTILITIES)
                 .register(entries -> entries.accept(POWER_STAR));

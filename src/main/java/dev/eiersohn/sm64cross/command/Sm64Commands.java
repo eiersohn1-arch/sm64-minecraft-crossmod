@@ -3,6 +3,7 @@ package dev.eiersohn.sm64cross.command;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import dev.eiersohn.sm64cross.Sm64CrossMod;
+import dev.eiersohn.sm64cross.hub.CastleHubService;
 import dev.eiersohn.sm64cross.importer.CourseBuildService;
 import dev.eiersohn.sm64cross.level.LevelCatalog;
 import dev.eiersohn.sm64cross.level.Sm64Level;
@@ -23,6 +24,32 @@ public final class Sm64Commands {
                                 .executes(context -> showStars(context.getSource().getPlayerOrException()))
                                 .then(Commands.literal("stars")
                                         .executes(context -> showStars(context.getSource().getPlayerOrException())))
+                                .then(Commands.literal("castle")
+                                        .executes(context -> {
+                                            ServerPlayer player =
+                                                    context.getSource().getPlayerOrException();
+
+                                            if (!CastleHubService.teleportHome(player)) {
+                                                context.getSource().sendFailure(
+                                                        Component.literal("Peach's Castle is still building.")
+                                                );
+                                                return 0;
+                                            }
+                                            return 1;
+                                        }))
+                                .then(Commands.literal("bob")
+                                        .executes(context -> {
+                                            ServerPlayer player =
+                                                    context.getSource().getPlayerOrException();
+
+                                            if (!CastleHubService.enterBob(player)) {
+                                                context.getSource().sendFailure(
+                                                        Component.literal("Bob-omb Battlefield is still building.")
+                                                );
+                                                return 0;
+                                            }
+                                            return 1;
+                                        }))
                                 .then(Commands.literal("star")
                                         .then(Commands.literal("add")
                                                 .requires(source -> source.hasPermission(2))

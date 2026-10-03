@@ -1,4 +1,6 @@
-/*
+#include "../crossmod_bridge.h"
+
+ /*
  * Minecraft -> SM64 D3D11 compositor.
  *
  * This file is copied into sm64-port/src/pc/gfx and included directly by
@@ -29,10 +31,29 @@ struct McOverlayConstants {
     float mc_far;
     float host_near;
     float host_far;
+
     float mc_aspect;
     float host_aspect;
     float depth_bias;
     float mc_flags;
+
+    float warp_row0[4];
+    float warp_row1[4];
+    float warp_row2[4];
+    float warp_t[4];
+    float warp_tan[4];
+};
+
+struct McOverlayPose {
+    uint64_t host_frame = 0;
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+    float yaw = 0.0f;
+    float pitch = 0.0f;
+    float roll = 0.0f;
+    float fov = 45.0f;
+    bool valid = false;
 };
 
 static struct {
@@ -47,6 +68,7 @@ static struct {
     int32_t mc_flags = 0;
     uint32_t width = 0;
     uint32_t height = 0;
+    McOverlayPose mc_pose;
 
     ComPtr<ID3D11Texture2D> world_texture;
     ComPtr<ID3D11Texture2D> mc_depth_texture;
@@ -260,10 +282,21 @@ cbuffer OverlayConstants : register(b0) {
     float McFar;
     float HostNear;
     float HostFar;
+
     float McAspect;
     float HostAspect;
     float DepthBias;
     float McFlags;
+
+    float4 WarpRow0;
+    float4 WarpRow1;
+    float4 WarpRow2;
+    float4 WarpT;
+    // x = tan(host vertical fov / 2)
+    // y = tan(Minecraft vertical fov / 2)
+    // z = Minecraft aspect
+    // w = reprojection enabled
+    float4 WarpTan;
 };
 
 float mc_linear_depth(float d) {
@@ -292,55 +325,177 @@ float host_linear_depth(float d) {
         / max(HostFar - d * (HostFar - HostNear), 1.0e-6);
 }
 
-float4 PSMain(VSOutput input) : SV_TARGET {
-    /*
-     * Minecraft's glGetTexImage rows are bottom-up. The X correction keeps
-     * the same vertical FOV even if the hidden Minecraft window and visible
-     * SM64 window use different aspect ratios.
-     */
-    float ndc_x = input.uv.x * 2.0 - 1.0;
-    float mc_ndc_x = ndc_x * HostAspect / max(McAspect, 1.0e-6);
+float2 mc_uv_from_ndc(float2 ndc) {
     bool bottom_up = fmod(floor(McFlags / 2.0), 2.0) > 0.5;
-    float2 mc_uv = float2(
-        mc_ndc_x * 0.5 + 0.5,
-        bottom_up ? (1.0 - input.uv.y) : input.uv.y
-    );
-
-    bool inside = all(mc_uv >= 0.0) && all(mc_uv <= 1.0);
-
-    float4 world = 0.0;
-    float4 overlay = 0.0;
-    float mc_d = 1.0;
-
-    if (inside) {
-        world = McWorld.Sample(LinearSampler, mc_uv);
-        overlay = McOverlay.Sample(LinearSampler, mc_uv);
-        mc_d = McDepth.Sample(PointSampler, mc_uv).r;
+    float2 uv = ndc * 0.5 + 0.5;
+    if (!bottom_up) {
+        uv.y = 1.0 - uv.y;
     }
+    return uv;
+}
 
+float4 PSMain(VSOutput input) : SV_TARGET {
     float host_d = HostDepth.Sample(PointSampler, input.uv).r;
-    float mc_z = mc_linear_depth(mc_d);
     float host_z = host_linear_depth(host_d);
 
-    /*
-     * Depth==1 is Minecraft sky/clear background. It must never cover SM64.
-     * Real Steve/items/placed blocks are drawn only if they are in front of
-     * the native SM64 surface at that pixel.
-     */
-    float world_visible =
-        inside && mc_z < 1.0e19 && mc_z <= host_z + DepthBias
+    // Screen-space sampling for hand/HUD is never reprojected.
+    float2 screen_ndc = float2(
+        input.uv.x * 2.0 - 1.0,
+        1.0 - input.uv.y * 2.0
+    );
+    float2 overlay_uv = mc_uv_from_ndc(screen_ndc);
+    float4 overlay = McOverlay.Sample(LinearSampler, overlay_uv);
+
+    // Direct fallback for the first frame or if a pose is not available.
+    float mc_ndc_x =
+        screen_ndc.x * HostAspect / max(McAspect, 1.0e-6);
+    float2 world_uv = mc_uv_from_ndc(
+        float2(mc_ndc_x, screen_ndc.y)
+    );
+    bool inside =
+        all(world_uv >= 0.0) && all(world_uv <= 1.0);
+
+    float mc_z = 1.0e20;
+
+    if (WarpTan.w > 0.5 && host_z < 1.0e19) {
+        /*
+         * Port of Universal Modder's Minecraft x GTA pose reprojection:
+         * march the current host-camera ray through the Minecraft frame
+         * rendered from the older captured pose, then refine the crossing.
+         */
+        float3 ray = float3(
+            screen_ndc.x * WarpTan.x * HostAspect,
+            screen_ndc.y * WarpTan.x,
+            -1.0
+        );
+        float2 mc_scale = float2(
+            WarpTan.y * WarpTan.z,
+            WarpTan.y
+        );
+
+        float z_near = max(HostNear, 0.2);
+        float z_far = max(
+            min(host_z + DepthBias, min(HostFar, 400.0)),
+            z_near * 2.0
+        );
+
+        float2 settled_ndc = 0.0;
+        inside = false;
+
+        [loop] for (int i = 0; i < 24; ++i) {
+            float t = i / 23.0;
+            float z = z_near * pow(z_far / z_near, t);
+            float3 p = ray * z;
+
+            float3 pm = float3(
+                dot(WarpRow0.xyz, p),
+                dot(WarpRow1.xyz, p),
+                dot(WarpRow2.xyz, p)
+            ) + WarpT.xyz;
+
+            if (pm.z > -1.0e-3) {
+                continue;
+            }
+
+            float2 n = pm.xy / -pm.z / mc_scale;
+            if (any(abs(n) > 1.0)) {
+                continue;
+            }
+
+            float2 sample_uv = mc_uv_from_ndc(n);
+            float z_surface = mc_linear_depth(
+                McDepth.SampleLevel(
+                    PointSampler,
+                    sample_uv,
+                    0
+                ).r
+            );
+
+            if (z_surface > -pm.z + 0.03) {
+                continue;
+            }
+
+            float z_host = z;
+            settled_ndc = n;
+
+            [loop] for (int k = 0; k < 3; ++k) {
+                float3 pk = ray * z_host;
+                float3 mk = float3(
+                    dot(WarpRow0.xyz, pk),
+                    dot(WarpRow1.xyz, pk),
+                    dot(WarpRow2.xyz, pk)
+                ) + WarpT.xyz;
+
+                if (mk.z > -1.0e-3) {
+                    break;
+                }
+
+                float2 nk = mk.xy / -mk.z / mc_scale;
+                if (any(abs(nk) > 1.0)) {
+                    break;
+                }
+
+                float zk = mc_linear_depth(
+                    McDepth.SampleLevel(
+                        PointSampler,
+                        mc_uv_from_ndc(nk),
+                        0
+                    ).r
+                );
+
+                if (zk > 1.0e19) {
+                    break;
+                }
+
+                settled_ndc = nk;
+
+                float3 q =
+                    float3(nk * mc_scale, -1.0) * zk
+                    - WarpT.xyz;
+
+                z_host = -(
+                    q.x * WarpRow0.z
+                    + q.y * WarpRow1.z
+                    + q.z * WarpRow2.z
+                );
+            }
+
+            world_uv = mc_uv_from_ndc(settled_ndc);
+            mc_z = z_host;
+            inside = true;
+            break;
+        }
+    } else if (inside) {
+        mc_z = mc_linear_depth(
+            McDepth.SampleLevel(
+                PointSampler,
+                world_uv,
+                0
+            ).r
+        );
+    }
+
+    float4 world = inside
+        ? McWorld.Sample(LinearSampler, world_uv)
+        : float4(0.0, 0.0, 0.0, 0.0);
+
+    float visible =
+        inside
+        && mc_z < 1.0e19
+        && mc_z <= host_z + DepthBias
         ? 1.0
         : 0.0;
 
-    world *= world_visible;
+    world *= visible;
 
     /*
-     * Minecraft renders into a transparent target after the world capture,
-     * so these buffers are already premultiplied. The HUD/GUI is screen-space
-     * and always belongs on top of both Steve and SM64.
+     * Minecraft world/overlay buffers are premultiplied-alpha layers.
+     * The HUD stays screen-space while the 3D world is reprojected.
      */
-    float3 rgb = overlay.rgb + world.rgb * (1.0 - overlay.a);
-    float alpha = overlay.a + world.a * (1.0 - overlay.a);
+    float3 rgb =
+        overlay.rgb + world.rgb * (1.0 - overlay.a);
+    float alpha =
+        overlay.a + world.a * (1.0 - overlay.a);
 
     return float4(rgb, alpha);
 }
@@ -710,6 +865,26 @@ static bool mc_overlay_upload_latest(
     mc_far = mc_overlay_read<float>(desc_offset + 36);
     mc_flags = mc_overlay_read<int32_t>(desc_offset + 44);
 
+    mc_overlay.mc_pose.host_frame =
+        mc_overlay_read<uint64_t>(desc_offset + 16);
+    mc_overlay.mc_pose.fov =
+        mc_overlay_read<float>(desc_offset + 40);
+    mc_overlay.mc_pose.x =
+        mc_overlay_read<double>(desc_offset + 48);
+    mc_overlay.mc_pose.y =
+        mc_overlay_read<double>(desc_offset + 56);
+    mc_overlay.mc_pose.z =
+        mc_overlay_read<double>(desc_offset + 64);
+    mc_overlay.mc_pose.yaw =
+        mc_overlay_read<float>(desc_offset + 72);
+    mc_overlay.mc_pose.pitch =
+        mc_overlay_read<float>(desc_offset + 76);
+    mc_overlay.mc_pose.roll =
+        mc_overlay_read<float>(desc_offset + 80);
+    mc_overlay.mc_pose.valid =
+        mc_overlay.mc_pose.fov > 1.0f
+        && mc_overlay.mc_pose.fov < 170.0f;
+
     if (!(mc_near > 0.0f) || !(mc_far > mc_near)) {
         mc_near = 0.05f;
         mc_far = 256.0f;
@@ -718,6 +893,151 @@ static bool mc_overlay_upload_latest(
     mc_overlay.mc_flags = mc_flags;
     mc_overlay.last_publish = published;
     return true;
+}
+
+
+static void mc_overlay_camera_rotation(
+        float yaw,
+        float pitch,
+        float roll,
+        float out[3][3]
+) {
+    const float d2r = 3.14159265358979323846f / 180.0f;
+    const float a = 3.14159265358979323846f - yaw * d2r;
+    const float b = -pitch * d2r;
+    const float c = roll * d2r;
+
+    const float ca = cosf(a);
+    const float sa = sinf(a);
+    const float cb = cosf(b);
+    const float sb = sinf(b);
+    const float cc = cosf(c);
+    const float sc = sinf(c);
+
+    const float ry[3][3] = {
+        {ca, 0.0f, sa},
+        {0.0f, 1.0f, 0.0f},
+        {-sa, 0.0f, ca}
+    };
+    const float rx[3][3] = {
+        {1.0f, 0.0f, 0.0f},
+        {0.0f, cb, -sb},
+        {0.0f, sb, cb}
+    };
+    const float rz[3][3] = {
+        {cc, -sc, 0.0f},
+        {sc, cc, 0.0f},
+        {0.0f, 0.0f, 1.0f}
+    };
+
+    float temp[3][3] = {};
+
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            for (int k = 0; k < 3; ++k) {
+                temp[i][j] += ry[i][k] * rx[k][j];
+            }
+        }
+    }
+
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            out[i][j] = 0.0f;
+            for (int k = 0; k < 3; ++k) {
+                out[i][j] += temp[i][k] * rz[k][j];
+            }
+        }
+    }
+}
+
+static void mc_overlay_build_reprojection(
+        McOverlayConstants &constants
+) {
+    constants.warp_row0[0] = 1.0f;
+    constants.warp_row0[1] = 0.0f;
+    constants.warp_row0[2] = 0.0f;
+
+    constants.warp_row1[0] = 0.0f;
+    constants.warp_row1[1] = 1.0f;
+    constants.warp_row1[2] = 0.0f;
+
+    constants.warp_row2[0] = 0.0f;
+    constants.warp_row2[1] = 0.0f;
+    constants.warp_row2[2] = 1.0f;
+
+    constants.warp_t[0] = 0.0f;
+    constants.warp_t[1] = 0.0f;
+    constants.warp_t[2] = 0.0f;
+
+    constants.warp_tan[0] = 1.0f;
+    constants.warp_tan[1] = 1.0f;
+    constants.warp_tan[2] = constants.mc_aspect;
+    constants.warp_tan[3] = 0.0f;
+
+    if (!mc_overlay.mc_pose.valid) {
+        return;
+    }
+
+    CrossmodRenderPose host_pose;
+    if (!crossmod_bridge_get_render_pose(&host_pose)
+            || host_pose.fov <= 1.0f
+            || host_pose.fov >= 170.0f) {
+        return;
+    }
+
+    float host_rotation[3][3];
+    float mc_rotation[3][3];
+
+    mc_overlay_camera_rotation(
+        host_pose.yaw,
+        host_pose.pitch,
+        host_pose.roll,
+        host_rotation
+    );
+    mc_overlay_camera_rotation(
+        mc_overlay.mc_pose.yaw,
+        mc_overlay.mc_pose.pitch,
+        mc_overlay.mc_pose.roll,
+        mc_rotation
+    );
+
+    float warp[3][3] = {};
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            for (int k = 0; k < 3; ++k) {
+                warp[i][j] +=
+                    mc_rotation[k][i]
+                    * host_rotation[k][j];
+            }
+        }
+    }
+
+    for (int j = 0; j < 3; ++j) {
+        constants.warp_row0[j] = warp[0][j];
+        constants.warp_row1[j] = warp[1][j];
+        constants.warp_row2[j] = warp[2][j];
+    }
+
+    const float delta[3] = {
+        host_pose.camera_x - (float) mc_overlay.mc_pose.x,
+        host_pose.camera_y - (float) mc_overlay.mc_pose.y,
+        host_pose.camera_z - (float) mc_overlay.mc_pose.z
+    };
+
+    for (int i = 0; i < 3; ++i) {
+        constants.warp_t[i] =
+            mc_rotation[0][i] * delta[0]
+            + mc_rotation[1][i] * delta[1]
+            + mc_rotation[2][i] * delta[2];
+    }
+
+    const float d2r = 3.14159265358979323846f / 180.0f;
+    constants.warp_tan[0] =
+        tanf(host_pose.fov * d2r * 0.5f);
+    constants.warp_tan[1] =
+        tanf(mc_overlay.mc_pose.fov * d2r * 0.5f);
+    constants.warp_tan[2] = constants.mc_aspect;
+    constants.warp_tan[3] = 1.0f;
 }
 
 
@@ -882,6 +1202,8 @@ static void mc_overlay_render(void) {
         (float) d3d.current_width / (float) d3d.current_height;
     constants.depth_bias = 0.08f;
     constants.mc_flags = (float) mc_flags;
+
+    mc_overlay_build_reprojection(constants);
 
     memcpy(
         mapped_cb.pData,

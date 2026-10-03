@@ -27,6 +27,7 @@ typedef int crossmod_socket_t;
 #include "game/mario.h"
 #include "game/object_list_processor.h"
 #include "engine/surface_collision.h"
+#include "engine/math_util.h"
 #include "engine/graph_node.h"
 #include "object_constants.h"
 #include "object_fields.h"

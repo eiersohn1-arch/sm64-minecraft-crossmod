@@ -48,3 +48,21 @@ Because SM64-port's renderer source is available, this compositor lives directly
 For the present Minecraft-1.21.1 test harness, the SM64 host window becomes a borderless click-through overlay aligned to Minecraft's client area after the first shared frame is published. Minecraft stays focused for normal keyboard, mouse, inventory and hotbar input.
 
 A later host-input route can move focus fully to the host, like the GTA example, without changing the WebSocket or shared-memory protocol.
+
+
+## Camera reprojection
+
+The compositor also ports the latency correction used by Universal Modder's Minecraft × GTA example.
+
+Every published Minecraft frame stores the exact camera position, yaw, pitch and FOV that rendered it. SM64 independently exposes the camera pose it is rendering now. When those poses differ, the compositor:
+
+1. reconstructs the current SM64 camera ray for each screen pixel;
+2. transforms that ray into the older Minecraft-frame camera space;
+3. marches the ray against Minecraft's exported depth texture;
+4. refines the first depth crossing;
+5. samples Minecraft colour at the reprojected coordinate;
+6. compares the recovered Minecraft depth against the native SM64 depth.
+
+The Minecraft HUD/hand overlay is intentionally not reprojected; it remains screen-space.
+
+This is the same core 6-DoF depth-reprojection idea as `MCPassthrough.fx`, adapted to SM64's native D3D11 compositor.

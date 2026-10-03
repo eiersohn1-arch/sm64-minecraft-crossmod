@@ -32,6 +32,13 @@ jobs:
           grep -q "attackSerial" src/client/java/dev/eiersohn/sm64cross/client/bridge/PassthroughBridgeClient.java
           grep -q "sm64-port/sm64-port.git" tools/prepare_passthrough.py
 
+      - name: Syntax-check SM64 bridge against upstream headers
+        run: |
+          git clone --depth 1 https://github.com/sm64-port/sm64-port.git /tmp/sm64-port
+          cp sm64-host/crossmod_bridge.c /tmp/sm64-port/src/pc/crossmod_bridge.c
+          cp sm64-host/crossmod_bridge.h /tmp/sm64-port/src/pc/crossmod_bridge.h
+          gcc -std=gnu11 -fsyntax-only             -DTARGET_PC=1 -DVERSION_US=1 -DAVOID_UB=1 -DNON_MATCHING=1             -I/tmp/sm64-port             -I/tmp/sm64-port/include             -I/tmp/sm64-port/src             /tmp/sm64-port/src/pc/crossmod_bridge.c
+
       - name: Validate Gradle wrapper
         uses: gradle/actions/wrapper-validation@v4
 

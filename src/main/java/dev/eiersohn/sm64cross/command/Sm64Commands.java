@@ -3,12 +3,15 @@ package dev.eiersohn.sm64cross.command;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import dev.eiersohn.sm64cross.Sm64CrossMod;
+import dev.eiersohn.sm64cross.importer.CourseBuildService;
 import dev.eiersohn.sm64cross.level.LevelCatalog;
 import dev.eiersohn.sm64cross.level.Sm64Level;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
+
+import java.io.IOException;
 
 public final class Sm64Commands {
     private Sm64Commands() {}
@@ -69,6 +72,27 @@ public final class Sm64Commands {
                                                                             + " | stars=" + level.normalStars()), false);
                                                             return 1;
                                                         }))))
+                                .then(Commands.literal("build")
+                                        .requires(source -> source.hasPermission(2))
+                                        .then(Commands.argument("id", StringArgumentType.word())
+                                                .executes(context -> {
+                                                    ServerPlayer player = context.getSource().getPlayerOrException();
+                                                    String id = StringArgumentType.getString(context, "id");
+
+                                                    try {
+                                                        return CourseBuildService.start(player, id);
+                                                    } catch (IOException exception) {
+                                                        context.getSource().sendFailure(
+                                                                Component.literal(exception.getMessage()));
+                                                        return 0;
+                                                    }
+                                                })))
+                                .then(Commands.literal("buildstatus")
+                                        .executes(context -> {
+                                            context.getSource().sendSuccess(
+                                                    () -> Component.literal(CourseBuildService.status()), false);
+                                            return 1;
+                                        }))
                 )
         );
     }

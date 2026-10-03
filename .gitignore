@@ -9,6 +9,9 @@ out/
 # Minecraft run directory
 run/
 
+# Local source checkouts / tools
+vendor/
+
 # Local ROMs and extracted/generated copyrighted assets
 rom/
 generated/

@@ -33,6 +33,8 @@ jobs:
           grep -q "sm64-port/sm64-port.git" tools/prepare_passthrough.py
           grep -q "patch_sm64_port_toolchain" tools/prepare_passthrough.py
           grep -q "#include <cstdint>" tools/prepare_passthrough.py
+          grep -q "GetFileAttributesExW" tools/prepare_passthrough.py
+          grep -q "GetFileAttributesW" tools/prepare_passthrough.py
 
       - name: Syntax-check SM64 bridge against upstream headers
         run: |

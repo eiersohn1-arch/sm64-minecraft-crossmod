@@ -90,6 +90,21 @@ def patch_sm64_port_toolchain() -> None:
         "#include <cstdint>\n#include <cstdio>\n",
     )
 
+    # The bundled armips uses std::wstring paths but calls the generic Win32
+    # GetFileAttributes* macros. With current MinGW those macros resolve to
+    # the ANSI A variants unless UNICODE is globally defined, which rejects
+    # wchar_t*. Call the wide W variants explicitly instead.
+    patch_once(
+        armips,
+        "GetFileAttributesEx(fileName.c_str(),GetFileExInfoStandard,&attr)",
+        "GetFileAttributesExW(fileName.c_str(),GetFileExInfoStandard,&attr)",
+    )
+    patch_once(
+        armips,
+        "GetFileAttributes(strFilename.c_str())",
+        "GetFileAttributesW(strFilename.c_str())",
+    )
+
     print("Patched bundled armips for modern MSYS2/GCC.")
 
 

@@ -61,12 +61,12 @@ public final class CourseBuildService {
                 player.getUUID(),
                 player.serverLevel(),
                 anchor,
-                plan.blocks()
+                plan
         ));
 
         player.sendSystemMessage(Component.literal(
                 "Building " + courseId + ": " + plan.blocks().size()
-                        + " blocks. You can keep moving while it builds."
+                        + " terrain blocks."
         ));
 
         return plan.blocks().size();
@@ -78,7 +78,7 @@ public final class CourseBuildService {
             return "No SM64 course build is running.";
         }
         return "Building " + job.courseId + ": "
-                + job.index + "/" + job.blocks.size() + " blocks";
+                + job.index + "/" + job.plan.blocks().size() + " blocks";
     }
 
     private static void tick() {
@@ -88,8 +88,8 @@ public final class CourseBuildService {
         }
 
         int placed = 0;
-        while (placed < BLOCKS_PER_TICK && job.index < job.blocks.size()) {
-            Placement placement = job.blocks.get(job.index++);
+        while (placed < BLOCKS_PER_TICK && job.index < job.plan.blocks().size()) {
+            CoursePlan.Placement placement = job.plan.blocks().get(job.index++);
             BlockPos target = job.anchor.offset(
                     placement.x(),
                     placement.y(),
@@ -99,15 +99,26 @@ public final class CourseBuildService {
             placed++;
         }
 
-        if (job.index >= job.blocks.size()) {
+        if (job.index >= job.plan.blocks().size()) {
             JOBS.removeFirst();
+
             ServerPlayer player = job.level.getServer()
                     .getPlayerList()
                     .getPlayer(job.playerId);
+
             if (player != null) {
+                CourseRuntimeService.activate(
+                        job.courseId,
+                        player,
+                        job.level,
+                        job.anchor,
+                        job.plan
+                );
+
                 player.sendSystemMessage(Component.literal(
                         "Finished building " + job.courseId
-                                + " (" + job.blocks.size() + " blocks)."
+                                + " (" + job.plan.blocks().size()
+                                + " terrain blocks)."
                 ));
             }
         }
@@ -127,10 +138,8 @@ public final class CourseBuildService {
                 palette.add(stateFor(element.getAsString()));
             }
 
-            List<Placement> placements = new ArrayList<>();
-            JsonArray blocks = root.getAsJsonArray("blocks");
-
-            for (JsonElement element : blocks) {
+            List<CoursePlan.Placement> placements = new ArrayList<>();
+            for (JsonElement element : root.getAsJsonArray("blocks")) {
                 JsonArray entry = element.getAsJsonArray();
                 int x = entry.get(0).getAsInt();
                 int y = entry.get(1).getAsInt();
@@ -141,13 +150,47 @@ public final class CourseBuildService {
                     throw new IOException("Invalid palette id " + paletteId);
                 }
 
-                placements.add(new Placement(x, y, z, palette.get(paletteId)));
+                placements.add(new CoursePlan.Placement(
+                        x, y, z, palette.get(paletteId)
+                ));
             }
 
-            return new CoursePlan(List.copyOf(placements));
+            List<BlockPos> redCoins = new ArrayList<>();
+            if (root.has("redCoins")) {
+                for (JsonElement element : root.getAsJsonArray("redCoins")) {
+                    redCoins.add(readPos(element.getAsJsonArray()));
+                }
+            }
+
+            List<CoursePlan.StarObjective> objectives = new ArrayList<>();
+            if (root.has("objectives")) {
+                for (JsonElement element : root.getAsJsonArray("objectives")) {
+                    JsonObject objective = element.getAsJsonObject();
+                    objectives.add(new CoursePlan.StarObjective(
+                            objective.get("index").getAsInt(),
+                            objective.get("id").getAsString(),
+                            objective.get("kind").getAsString(),
+                            readPos(objective.getAsJsonArray("pos"))
+                    ));
+                }
+            }
+
+            return new CoursePlan(
+                    List.copyOf(placements),
+                    List.copyOf(redCoins),
+                    List.copyOf(objectives)
+            );
         } catch (RuntimeException exception) {
             throw new IOException("Invalid SM64 course plan: " + path, exception);
         }
+    }
+
+    private static BlockPos readPos(JsonArray position) {
+        return new BlockPos(
+                position.get(0).getAsInt(),
+                position.get(1).getAsInt(),
+                position.get(2).getAsInt()
+        );
     }
 
     private static BlockState stateFor(String id) {
@@ -160,18 +203,12 @@ public final class CourseBuildService {
         };
     }
 
-    private record Placement(int x, int y, int z, BlockState state) {
-    }
-
-    private record CoursePlan(List<Placement> blocks) {
-    }
-
     private static final class BuildJob {
         private final String courseId;
         private final UUID playerId;
         private final ServerLevel level;
         private final BlockPos anchor;
-        private final List<Placement> blocks;
+        private final CoursePlan plan;
         private int index;
 
         private BuildJob(
@@ -179,13 +216,13 @@ public final class CourseBuildService {
                 UUID playerId,
                 ServerLevel level,
                 BlockPos anchor,
-                List<Placement> blocks
+                CoursePlan plan
         ) {
             this.courseId = courseId;
             this.playerId = playerId;
             this.level = level;
             this.anchor = anchor;
-            this.blocks = blocks;
+            this.plan = plan;
         }
     }
 }

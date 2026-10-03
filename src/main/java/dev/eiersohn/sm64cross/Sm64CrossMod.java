@@ -2,6 +2,7 @@ package dev.eiersohn.sm64cross;
 
 import dev.eiersohn.sm64cross.command.Sm64Commands;
 import dev.eiersohn.sm64cross.importer.CourseBuildService;
+import dev.eiersohn.sm64cross.importer.CourseRuntimeService;
 import dev.eiersohn.sm64cross.progress.StarCollector;
 import dev.eiersohn.sm64cross.progress.StarStore;
 import net.fabricmc.api.ModInitializer;
@@ -31,6 +32,7 @@ public final class Sm64CrossMod implements ModInitializer {
         Sm64Commands.register();
         StarCollector.register();
         CourseBuildService.register();
+        CourseRuntimeService.register();
 
         ItemGroupEvents.modifyEntriesEvent(CreativeModeTabs.TOOLS_AND_UTILITIES)
                 .register(entries -> entries.accept(POWER_STAR));

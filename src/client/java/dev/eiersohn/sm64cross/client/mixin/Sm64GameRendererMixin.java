@@ -1,6 +1,6 @@
 package dev.eiersohn.sm64cross.client.mixin;
 
-import dev.eiersohn.sm64cross.client.bridge.PassthroughBridgeClient;
+import dev.eiersohn.sm64cross.client.bridge.HostState;
 import dev.eiersohn.sm64cross.client.render.Sm64FrameExporter;
 import net.minecraft.client.Camera;
 import net.minecraft.client.DeltaTracker;
@@ -33,24 +33,18 @@ abstract class Sm64GameRendererMixin {
         Sm64FrameExporter.captureOverlay();
     }
 
-    @Inject(
-            method = "getFov",
-            at = @At("HEAD"),
-            cancellable = true
-    )
+    @Inject(method = "getFov", at = @At("HEAD"), cancellable = true)
     private void sm64cross$fov(
             Camera camera,
             float partialTick,
             boolean useFovSetting,
             CallbackInfoReturnable<Double> cir
     ) {
-        PassthroughBridgeClient.HostState state =
-                PassthroughBridgeClient.hostState();
-
+        HostState.State state = HostState.latest();
         if (state.connected()
-                && state.cameraFov() > 1.0
-                && state.cameraFov() < 170.0) {
-            cir.setReturnValue(state.cameraFov());
+                && state.fov() > 1.0f
+                && state.fov() < 170.0f) {
+            cir.setReturnValue((double) state.fov());
         }
     }
 }

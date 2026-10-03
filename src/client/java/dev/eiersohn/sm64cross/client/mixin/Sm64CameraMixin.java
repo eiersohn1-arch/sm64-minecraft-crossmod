@@ -1,6 +1,6 @@
 package dev.eiersohn.sm64cross.client.mixin;
 
-import dev.eiersohn.sm64cross.client.bridge.PassthroughBridgeClient;
+import dev.eiersohn.sm64cross.client.bridge.HostState;
 import dev.eiersohn.sm64cross.client.render.Sm64VisualSync;
 import net.minecraft.client.Camera;
 import net.minecraft.world.entity.Entity;
@@ -17,17 +17,10 @@ abstract class Sm64CameraMixin {
     private boolean detached;
 
     @Shadow
-    protected abstract void setPosition(
-            double x,
-            double y,
-            double z
-    );
+    protected abstract void setPosition(double x, double y, double z);
 
     @Shadow
-    protected abstract void setRotation(
-            float yaw,
-            float pitch
-    );
+    protected abstract void setRotation(float yaw, float pitch);
 
     @Inject(method = "setup", at = @At("TAIL"))
     private void sm64cross$camera(
@@ -38,40 +31,20 @@ abstract class Sm64CameraMixin {
             float partialTick,
             CallbackInfo ci
     ) {
-        PassthroughBridgeClient.HostState state =
-                PassthroughBridgeClient.hostState();
-
+        HostState.State state = HostState.latest();
         if (!state.connected()) {
             return;
         }
 
-        double cx = Sm64VisualSync.x(state.cameraX());
-        double cy = Sm64VisualSync.y(state.cameraY());
-        double cz = Sm64VisualSync.z(state.cameraZ());
-
-        double fx = Sm64VisualSync.x(state.focusX());
-        double fy = Sm64VisualSync.y(state.focusY());
-        double fz = Sm64VisualSync.z(state.focusZ());
-
-        double dx = fx - cx;
-        double dy = fy - cy;
-        double dz = fz - cz;
-        double horizontal = Math.sqrt(dx * dx + dz * dz);
-
-        float yaw = (float) Math.toDegrees(
-                Math.atan2(-dx, dz)
+        setPosition(
+                state.cameraX(),
+                Sm64VisualSync.renderY(state.cameraY()),
+                state.cameraZ()
         );
-        float pitch = (float) -Math.toDegrees(
-                Math.atan2(dy, Math.max(horizontal, 1.0e-6))
-        );
+        setRotation(state.yaw(), state.pitch());
 
-        this.setPosition(cx, cy, cz);
-        this.setRotation(yaw, pitch);
-
-        /*
-         * SM64 uses a third-person camera for normal play. Marking the
-         * Minecraft camera detached makes vanilla render the local Steve body.
-         */
+        // Same idea as universal-modder PlayerSync: force third-person body
+        // rendering while the host controls the actual camera pose.
         this.detached = true;
     }
 }

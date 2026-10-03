@@ -1,6 +1,6 @@
 package dev.eiersohn.sm64cross.client.render;
 
-import dev.eiersohn.sm64cross.client.bridge.PassthroughBridgeClient;
+import dev.eiersohn.sm64cross.client.bridge.HostState;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.minecraft.client.Minecraft;
 
@@ -10,9 +10,7 @@ public final class Sm64Hud {
 
     public static void register() {
         HudRenderCallback.EVENT.register((graphics, deltaTracker) -> {
-            PassthroughBridgeClient.HostState state =
-                    PassthroughBridgeClient.hostState();
-
+            HostState.State state = HostState.latest();
             if (!state.connected()) {
                 return;
             }
@@ -26,28 +24,17 @@ public final class Sm64Hud {
             graphics.drawString(
                     minecraft.font,
                     "STAR " + state.stars() + "/120",
-                    x,
-                    y,
-                    gold,
-                    true
+                    x, y, gold, true
             );
-
             graphics.drawString(
                     minecraft.font,
                     "COINS " + state.coins(),
-                    x,
-                    y + 11,
-                    white,
-                    true
+                    x, y + 11, white, true
             );
-
             graphics.drawString(
                     minecraft.font,
                     "LIVES " + state.lives(),
-                    x,
-                    y + 22,
-                    white,
-                    true
+                    x, y + 22, white, true
             );
 
             if (state.course() > 0) {
@@ -55,10 +42,7 @@ public final class Sm64Hud {
                         minecraft.font,
                         "COURSE " + state.course()
                                 + "  ACT " + state.act(),
-                        x,
-                        y + 33,
-                        white,
-                        true
+                        x, y + 33, white, true
                 );
             }
 
@@ -69,20 +53,15 @@ public final class Sm64Hud {
                 int tenths =
                         (frames - minutes * 1800 - seconds * 30) / 3;
 
-                String timer = String.format(
-                        "TIME %d'%02d\"%d",
-                        minutes,
-                        seconds,
-                        tenths
-                );
-
                 graphics.drawString(
                         minecraft.font,
-                        timer,
-                        x,
-                        y + 44,
-                        gold,
-                        true
+                        String.format(
+                                "TIME %d'%02d\"%d",
+                                minutes,
+                                seconds,
+                                tenths
+                        ),
+                        x, y + 44, gold, true
                 );
             }
         });

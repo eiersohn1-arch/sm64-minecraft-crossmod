@@ -3,7 +3,11 @@ package dev.eiersohn.sm64cross.client.render;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.systems.RenderSystem;
 import dev.eiersohn.sm64cross.Sm64CrossMod;
-import dev.eiersohn.sm64cross.client.bridge.PassthroughBridgeClient;
+import dev.eiersohn.sm64cross.client.bridge.HostLink;
+import dev.eiersohn.sm64cross.client.bridge.HostState;
+import java.nio.ByteBuffer;
+import java.nio.IntBuffer;
+import java.util.Locale;
 import net.minecraft.client.Minecraft;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.glfw.GLFWNativeWin32;
@@ -11,88 +15,77 @@ import org.lwjgl.opengl.GL11;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
 
-import java.io.IOException;
-import java.io.RandomAccessFile;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.nio.IntBuffer;
-import java.nio.MappedByteBuffer;
-import java.nio.channels.FileChannel;
-import java.nio.file.Path;
-import java.util.Locale;
-
 /**
- * Exports Minecraft's transparent 3D contribution and HUD for the SM64 host.
- *
- * <p>The file lives in the user's temp directory and is memory mapped by both
- * processes. It is intentionally a file mapping instead of JNI/JNA so the
- * Fabric side stays pure Java 21.</p>
+ * Minecraft frame export using the same shared-memory contract as
+ * universal-modder/examples/minecraft-gta5-passthrough.
  *
  * <pre>
- * header (4096 bytes, native little endian)
- *  0  int magic "S64X"
- *  4  int version
- *  8  int width
- * 12  int height
- * 16 long sequence (odd while writing, even when complete)
- * 24 long frame number
- * 32 int flags: bit 0 = rows bottom-up
- * 36 float Minecraft near plane
- * 40 float Minecraft far plane
- * 44 float vertical FOV degrees
- * 48 int Minecraft client-area screen X
- * 52 int Minecraft client-area screen Y
- * 56 int Minecraft client-area window width
- * 60 int Minecraft client-area window height
- * 64 long native Win32 HWND (0 on non-Windows)
+ * header (4096 bytes, little endian)
+ *  0 int magic "MCPT"   4 int version   8 int header bytes   12 int slots
+ * 16 long slot stride   24 int max width   28 int max height
+ * 32 long publish counter   40 int latest slot   44 int Minecraft pid
  *
- * data:
- * 4096                  world RGBA8
- * 4096 + pixels*4       world depth float32
- * 4096 + pixels*8       overlay RGBA8 (hand + HUD)
+ * 256 + 128 * slot:
+ *  +0 long seq (odd while writing)
+ *  +8 long Minecraft frame
+ * +16 long host frame
+ * +24 int width   +28 int height
+ * +32 float near  +36 float far  +40 float vertical fov
+ * +44 int flags: 1=[0,1] depth, 2=rows bottom-up, 4=reversed Z
+ * +48 double camera x/y/z
+ * +72 float yaw  +76 pitch  +80 roll  +84 int first person
+ * +88 long capture nanos  +96 long publish nanos
+ *
+ * slot data at 4096 + slot*stride:
+ * world RGBA8, world depth float32, overlay RGBA8
  * </pre>
+ *
+ * Offsets 48..64 in the global header are a backwards-compatible SM64
+ * extension containing Minecraft's window rectangle/HWND for the temporary
+ * click-through host-window integration.
  */
 public final class Sm64FrameExporter {
-    public static final int MAGIC = 0x58343653; // "S64X"
+    public static final String NAME = "Local\\MCPassthroughFrame";
+
+    public static final int MAGIC = 0x5450434D; // "MCPT"
     public static final int VERSION = 1;
     public static final int HEADER = 4096;
+    public static final int SLOTS = 3;
+    public static final int SLOT_DESC = 256;
+    public static final int SLOT_DESC_BYTES = 128;
     public static final int MAX_WIDTH = 3840;
     public static final int MAX_HEIGHT = 2160;
-    public static final long MAX_PIXELS =
-            (long) MAX_WIDTH * MAX_HEIGHT;
-    public static final long FILE_BYTES =
-            HEADER + MAX_PIXELS * 12L;
+    public static final long LAYER_MAX =
+            (long) MAX_WIDTH * MAX_HEIGHT * 4L;
+    public static final long STRIDE = LAYER_MAX * 3L;
+    public static final long MAPPING_BYTES =
+            HEADER + STRIDE * SLOTS;
 
-    private static final Path FILE = Path.of(
-            System.getProperty("java.io.tmpdir"),
-            "sm64cross_frame.bin"
-    );
-
-    private static RandomAccessFile randomFile;
-    private static FileChannel channel;
-    private static MappedByteBuffer mapped;
+    private static SharedMemory shared;
+    private static boolean failed;
+    private static boolean warnedSize;
 
     private static ByteBuffer world;
     private static ByteBuffer depth;
     private static ByteBuffer overlay;
-    private static int capacityBytes;
+    private static int bufferBytes;
+
     private static int capturedWidth;
     private static int capturedHeight;
-    private static long sequence;
-    private static long frame;
+    private static HostState.State capturedPose;
+    private static long captureNanos;
     private static boolean current;
-    private static boolean failed;
-    private static boolean sizeWarned;
+
+    private static int slotNext;
+    private static long frameCounter;
+    private static long publishCounter;
 
     private Sm64FrameExporter() {
     }
 
-    public static Path path() {
-        return FILE;
-    }
-
     public static void captureWorld() {
-        if (!PassthroughBridgeClient.isHostConnected()) {
+        HostState.State pose = HostState.latest();
+        if (!HostLink.connected() || !pose.connected()) {
             current = false;
             return;
         }
@@ -101,20 +94,19 @@ public final class Sm64FrameExporter {
 
         Minecraft minecraft = Minecraft.getInstance();
         RenderTarget target = minecraft.getMainRenderTarget();
-
         int width = target.width;
         int height = target.height;
-        long pixels = (long) width * height;
+        long bytes = (long) width * height * 4L;
 
         if (width <= 0
                 || height <= 0
                 || width > MAX_WIDTH
                 || height > MAX_HEIGHT
-                || pixels > MAX_PIXELS) {
-            if (!sizeWarned) {
-                sizeWarned = true;
+                || bytes > LAYER_MAX) {
+            if (!warnedSize) {
+                warnedSize = true;
                 Sm64CrossMod.LOGGER.warn(
-                        "SM64 frame export skipped at {}x{}; max is {}x{}",
+                        "Passthrough export skipped at {}x{}; max {}x{}",
                         width,
                         height,
                         MAX_WIDTH,
@@ -125,13 +117,13 @@ public final class Sm64FrameExporter {
             return;
         }
 
-        if (!ensureMapping()) {
+        if (!ensureSharedMemory()) {
             current = false;
             return;
         }
 
-        int bytes = Math.toIntExact(pixels * 4L);
-        ensureBuffers(bytes);
+        int size = Math.toIntExact(bytes);
+        ensureBuffers(size);
 
         GL11.glPixelStorei(GL11.GL_PACK_ALIGNMENT, 1);
 
@@ -163,13 +155,11 @@ public final class Sm64FrameExporter {
 
         capturedWidth = width;
         capturedHeight = height;
+        capturedPose = pose;
+        captureNanos = System.nanoTime();
         current = true;
 
-        /*
-         * Keep the depth buffer, but wipe the already-rendered world colour.
-         * Vanilla then draws the first-person hand and GUI into a transparent
-         * colour target. That becomes our screen-space overlay layer.
-         */
+        // Match the universal-modder split: world first, then transparent hand/HUD.
         target.bindWrite(false);
         GL11.glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
         GL11.glClear(GL11.GL_COLOR_BUFFER_BIT);
@@ -187,13 +177,12 @@ public final class Sm64FrameExporter {
         RenderTarget target = minecraft.getMainRenderTarget();
 
         if (target.width != capturedWidth
-                || target.height != capturedHeight) {
+                || target.height != capturedHeight
+                || capturedPose == null) {
             return;
         }
 
-        int bytes = capacityBytes;
         overlay.clear();
-
         GL11.glBindTexture(
                 GL11.GL_TEXTURE_2D,
                 target.getColorTextureId()
@@ -206,11 +195,11 @@ public final class Sm64FrameExporter {
                 overlay
         );
 
-        publish(bytes);
+        publish(minecraft);
     }
 
-    private static boolean ensureMapping() {
-        if (mapped != null) {
+    private static boolean ensureSharedMemory() {
+        if (shared != null) {
             return true;
         }
         if (failed) {
@@ -218,101 +207,116 @@ public final class Sm64FrameExporter {
         }
 
         try {
-            randomFile = new RandomAccessFile(FILE.toFile(), "rw");
-            randomFile.setLength(FILE_BYTES);
-            channel = randomFile.getChannel();
-            mapped = channel.map(
-                    FileChannel.MapMode.READ_WRITE,
-                    0,
-                    FILE_BYTES
-            );
-            mapped.order(ByteOrder.LITTLE_ENDIAN);
-
-            mapped.putInt(0, MAGIC);
-            mapped.putInt(4, VERSION);
-            mapped.putLong(16, 0L);
+            shared = SharedMemory.create(NAME, MAPPING_BYTES);
+            shared.putInt(0, MAGIC);
+            shared.putInt(4, VERSION);
+            shared.putInt(8, HEADER);
+            shared.putInt(12, SLOTS);
+            shared.putLong(16, STRIDE);
+            shared.putInt(24, MAX_WIDTH);
+            shared.putInt(28, MAX_HEIGHT);
+            shared.putLong(32, 0L);
+            shared.putInt(40, -1);
+            shared.putInt(44, (int) ProcessHandle.current().pid());
 
             Sm64CrossMod.LOGGER.info(
-                    "SM64 compositor frame mapping ready at {}",
-                    FILE
+                    "Passthrough shared memory ready: {} ({} MB)",
+                    NAME,
+                    MAPPING_BYTES >> 20
             );
             return true;
-        } catch (IOException exception) {
+        } catch (Throwable throwable) {
             failed = true;
             Sm64CrossMod.LOGGER.error(
-                    "Could not create SM64 frame mapping",
-                    exception
+                    "Could not create passthrough shared memory",
+                    throwable
             );
             return false;
         }
     }
 
     private static void ensureBuffers(int bytes) {
-        if (world != null && capacityBytes == bytes) {
+        if (world != null && bufferBytes == bytes) {
             return;
         }
 
         freeBuffers();
-
         world = MemoryUtil.memAlloc(bytes);
         depth = MemoryUtil.memAlloc(bytes);
         overlay = MemoryUtil.memAlloc(bytes);
-        capacityBytes = bytes;
+        bufferBytes = bytes;
     }
 
     private static void freeBuffers() {
-        if (world != null) {
-            MemoryUtil.memFree(world);
-        }
-        if (depth != null) {
-            MemoryUtil.memFree(depth);
-        }
-        if (overlay != null) {
-            MemoryUtil.memFree(overlay);
-        }
-
+        if (world != null) MemoryUtil.memFree(world);
+        if (depth != null) MemoryUtil.memFree(depth);
+        if (overlay != null) MemoryUtil.memFree(overlay);
         world = null;
         depth = null;
         overlay = null;
-        capacityBytes = 0;
+        bufferBytes = 0;
     }
 
-    private static void publish(int bytes) {
-        long odd = sequence + 1L;
-        if ((odd & 1L) == 0L) {
-            odd++;
+    private static void publish(Minecraft minecraft) {
+        int slot = slotNext;
+        slotNext = (slotNext + 1) % SLOTS;
+
+        long desc = SLOT_DESC + (long) SLOT_DESC_BYTES * slot;
+        long seq = shared.getLong(desc);
+        if ((seq & 1L) != 0L) {
+            seq++;
         }
 
-        mapped.putLong(16, odd);
-        mapped.putInt(8, capturedWidth);
-        mapped.putInt(12, capturedHeight);
-        mapped.putLong(24, ++frame);
-        mapped.putInt(32, 1);
+        // Mark the slot busy before touching its layers.
+        shared.putLong(desc, seq + 1L);
+        java.lang.invoke.VarHandle.fullFence();
 
-        Minecraft minecraft = Minecraft.getInstance();
-        mapped.putFloat(36, 0.05f);
-        mapped.putFloat(
-                40,
-                Math.max(
-                        32.0f,
-                        minecraft.gameRenderer.getRenderDistance()
-                )
+        long frame = ++frameCounter;
+        long layerBytes = (long) capturedWidth * capturedHeight * 4L;
+        long base = HEADER + STRIDE * slot;
+
+        copy(base, world, Math.toIntExact(layerBytes));
+        copy(base + layerBytes, depth, Math.toIntExact(layerBytes));
+        copy(base + 2L * layerBytes, overlay, Math.toIntExact(layerBytes));
+
+        float near = 0.05f;
+        float far = Math.max(
+                32.0f,
+                minecraft.gameRenderer.getRenderDistance()
         );
 
-        float fov = (float) PassthroughBridgeClient
-                .hostState()
-                .cameraFov();
-        mapped.putFloat(44, fov);
+        HostState.State pose = capturedPose;
+
+        shared.putLong(desc + 8, frame);
+        shared.putLong(desc + 16, pose.hostFrame());
+        shared.putInt(desc + 24, capturedWidth);
+        shared.putInt(desc + 28, capturedHeight);
+        shared.putFloat(desc + 32, near);
+        shared.putFloat(desc + 36, far);
+        shared.putFloat(desc + 40, pose.fov());
+
+        // MC 1.21.1 OpenGL depth is [0,1], rows returned bottom-up,
+        // and is not reversed-Z.
+        shared.putInt(desc + 44, 1 | 2);
+
+        shared.putDouble(desc + 48, pose.cameraX());
+        shared.putDouble(desc + 56, pose.cameraY());
+        shared.putDouble(desc + 64, pose.cameraZ());
+        shared.putFloat(desc + 72, pose.yaw());
+        shared.putFloat(desc + 76, pose.pitch());
+        shared.putFloat(desc + 80, pose.roll());
+        shared.putInt(desc + 84, 0);
+        shared.putLong(desc + 88, captureNanos);
+        shared.putLong(desc + 96, System.nanoTime());
+
         publishWindowInfo(minecraft);
 
-        putLayer(HEADER, world, bytes);
-        putLayer(HEADER + (long) bytes, depth, bytes);
-        putLayer(HEADER + 2L * bytes, overlay, bytes);
-
-        sequence = odd + 1L;
-        mapped.putLong(16, sequence);
+        java.lang.invoke.VarHandle.fullFence();
+        shared.putLong(desc, seq + 2L);
+        shared.putInt(40, slot);
+        java.lang.invoke.VarHandle.fullFence();
+        shared.putLong(32, ++publishCounter);
     }
-
 
     private static void publishWindowInfo(Minecraft minecraft) {
         long glfwWindow = minecraft.getWindow().getWindow();
@@ -326,10 +330,10 @@ public final class Sm64FrameExporter {
             GLFW.glfwGetWindowPos(glfwWindow, x, y);
             GLFW.glfwGetWindowSize(glfwWindow, width, height);
 
-            mapped.putInt(48, x.get(0));
-            mapped.putInt(52, y.get(0));
-            mapped.putInt(56, width.get(0));
-            mapped.putInt(60, height.get(0));
+            shared.putInt(48, x.get(0));
+            shared.putInt(52, y.get(0));
+            shared.putInt(56, width.get(0));
+            shared.putInt(60, height.get(0));
         }
 
         long nativeWindow = 0L;
@@ -343,21 +347,16 @@ public final class Sm64FrameExporter {
                 nativeWindow = 0L;
             }
         }
-
-        mapped.putLong(64, nativeWindow);
+        shared.putLong(64, nativeWindow);
     }
 
-    private static void putLayer(
-            long offset,
-            ByteBuffer source,
-            int bytes
-    ) {
-        ByteBuffer copy = source.duplicate();
-        copy.position(0);
-        copy.limit(bytes);
+    private static void copy(long offset, ByteBuffer source, int bytes) {
+        ByteBuffer src = source.duplicate();
+        src.position(0);
+        src.limit(bytes);
 
-        MappedByteBuffer target = mapped.duplicate();
-        target.position(Math.toIntExact(offset));
-        target.put(copy);
+        ByteBuffer dst = shared.slice(offset, bytes);
+        dst.position(0);
+        dst.put(src);
     }
 }

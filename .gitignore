@@ -1,0 +1,27 @@
+# Gradle / IDE
+.gradle/
+build/
+out/
+.idea/
+.vscode/
+*.iml
+
+# Minecraft run directory
+run/
+
+# Local ROMs and extracted/generated copyrighted assets
+rom/
+generated/
+extracted/
+*.z64
+*.n64
+*.v64
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db

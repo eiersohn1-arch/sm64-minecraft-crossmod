@@ -387,7 +387,7 @@ def main() -> int:
             SM64_PORT,
         )
         clone_if_missing(
-            "https://github.com/rehan-remade/universal-modder.git",
+            "https://github.com/rehan-remade/universal-modder",
             UNIVERSAL_MODDER,
         )
 

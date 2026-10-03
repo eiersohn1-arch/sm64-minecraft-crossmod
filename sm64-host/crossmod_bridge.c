@@ -509,7 +509,7 @@ static void send_state(const struct MarioState *m) {
     int length = snprintf(
             response,
             sizeof(response),
-            "S|%lu|%d|%d|%d|%d|%d|%d|%lu|%lu|native|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%d|%lu|%d|%d|%.3f\n",
+            "S|%lu|%d|%d|%d|%d|%d|%d|%lu|%lu|native|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%d|%lu|%d|%d|%.3f|%d|%d\n",
             s_player.sequence,
             (int) gCurrLevelNum,
             (int) gCurrAreaIndex,
@@ -532,7 +532,9 @@ static void send_state(const struct MarioState *m) {
             s_last_hit_attack_serial,
             s_last_hit_count,
             (int) m->faceAngle[1],
-            (double) sFOVState.fov
+            (double) sFOVState.fov,
+            (int) m->numCoins,
+            (int) m->numLives
     );
 
     if (length > 0) {

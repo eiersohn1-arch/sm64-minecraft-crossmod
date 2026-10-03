@@ -48,6 +48,20 @@ public final class Sm64VisualSync {
         player.setDeltaMovement(Vec3.ZERO);
         player.setNoGravity(true);
 
+        /*
+         * Keep the familiar Minecraft hearts/hunger HUD, but make the hearts
+         * represent the authoritative SM64 eight-wedge health meter.
+         */
+        float healthFraction = Math.max(
+                0.0f,
+                Math.min(1.0f, (state.health() >> 8) / 8.0f)
+        );
+        player.setHealth(
+                Math.max(0.01f, player.getMaxHealth() * healthFraction)
+        );
+        player.getFoodData().setFoodLevel(20);
+        player.getFoodData().setSaturation(20.0f);
+
         float yaw = (float) (
                 -state.faceAngle() * 360.0 / 65536.0
         );

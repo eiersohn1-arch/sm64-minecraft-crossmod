@@ -806,5 +806,16 @@ static void mc_overlay_render(void) {
     };
     d3d.context->PSSetShaderResources(0, 4, null_srvs);
 
+    /*
+     * SM64 binds its per-frame constant buffer only during renderer init.
+     * The compositor temporarily uses slot b0, so restore SM64's buffer before
+     * the next frame instead of relying on the state cache.
+     */
+    d3d.context->PSSetConstantBuffers(
+        0,
+        1,
+        d3d.per_frame_cb.GetAddressOf()
+    );
+
     mc_overlay_invalidate_sm64_cache();
 }

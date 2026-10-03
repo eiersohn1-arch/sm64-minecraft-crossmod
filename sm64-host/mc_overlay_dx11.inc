@@ -7,13 +7,15 @@
  * without changing any public SM64 renderer interfaces.
  */
 
-#define MC_OVERLAY_MAGIC 0x58343653u
+#define MC_OVERLAY_MAGIC 0x5450434Du /* "MCPT" */
 #define MC_OVERLAY_VERSION 1u
 #define MC_OVERLAY_HEADER 4096u
+#define MC_OVERLAY_SLOT_DESC 256u
+#define MC_OVERLAY_SLOT_DESC_BYTES 128u
 #define MC_OVERLAY_MAX_WIDTH 3840u
 #define MC_OVERLAY_MAX_HEIGHT 2160u
 #define MC_OVERLAY_MAX_PIXELS ((uint64_t) MC_OVERLAY_MAX_WIDTH * MC_OVERLAY_MAX_HEIGHT)
-#define MC_OVERLAY_FILE_BYTES ((uint64_t) MC_OVERLAY_HEADER + MC_OVERLAY_MAX_PIXELS * 12ull)
+#define MC_OVERLAY_MAX_LAYER_BYTES (MC_OVERLAY_MAX_PIXELS * 4ull)
 
 struct McOverlayVertex {
     float x;
@@ -30,16 +32,19 @@ struct McOverlayConstants {
     float mc_aspect;
     float host_aspect;
     float depth_bias;
-    float padding;
+    float mc_flags;
 };
 
 static struct {
-    HANDLE file = INVALID_HANDLE_VALUE;
     HANDLE mapping = nullptr;
     const uint8_t *view = nullptr;
+    SIZE_T view_bytes = 0;
     DWORD next_open_attempt = 0;
 
-    uint64_t last_sequence = 0;
+    int32_t slots = 0;
+    int64_t stride = 0;
+    int64_t last_publish = -1;
+    int32_t mc_flags = 0;
     uint32_t width = 0;
     uint32_t height = 0;
 
@@ -89,10 +94,10 @@ static void mc_overlay_close_mapping(void) {
         CloseHandle(mc_overlay.mapping);
         mc_overlay.mapping = nullptr;
     }
-    if (mc_overlay.file != INVALID_HANDLE_VALUE) {
-        CloseHandle(mc_overlay.file);
-        mc_overlay.file = INVALID_HANDLE_VALUE;
-    }
+    mc_overlay.view_bytes = 0;
+    mc_overlay.slots = 0;
+    mc_overlay.stride = 0;
+    mc_overlay.last_publish = -1;
 }
 
 static bool mc_overlay_open_mapping(void) {
@@ -104,47 +109,60 @@ static bool mc_overlay_open_mapping(void) {
     if (now < mc_overlay.next_open_attempt) {
         return false;
     }
-    mc_overlay.next_open_attempt = now + 500;
+    mc_overlay.next_open_attempt = now + 1000;
 
-    wchar_t path[MAX_PATH];
-    DWORD length = GetTempPathW(MAX_PATH, path);
-    if (length == 0 || length >= MAX_PATH - 32) {
-        return false;
-    }
-    lstrcatW(path, L"sm64cross_frame.bin");
-
-    mc_overlay.file = CreateFileW(
-        path,
-        GENERIC_READ,
-        FILE_SHARE_READ | FILE_SHARE_WRITE,
-        nullptr,
-        OPEN_EXISTING,
-        FILE_ATTRIBUTE_NORMAL,
-        nullptr
-    );
-    if (mc_overlay.file == INVALID_HANDLE_VALUE) {
-        return false;
-    }
-
-    LARGE_INTEGER size;
-    if (!GetFileSizeEx(mc_overlay.file, &size)
-            || (uint64_t) size.QuadPart < MC_OVERLAY_FILE_BYTES) {
-        mc_overlay_close_mapping();
-        return false;
-    }
-
-    mc_overlay.mapping = CreateFileMappingW(
-        mc_overlay.file,
-        nullptr,
-        PAGE_READONLY,
-        0,
-        0,
-        nullptr
+    /*
+     * This is the exact transport shape used by universal-modder's
+     * Minecraft x GTA passthrough: Minecraft creates a pagefile-backed named
+     * mapping and the host opens it by name.
+     */
+    mc_overlay.mapping = OpenFileMappingW(
+        FILE_MAP_READ,
+        FALSE,
+        L"Local\\MCPassthroughFrame"
     );
     if (mc_overlay.mapping == nullptr) {
+        return false;
+    }
+
+    const uint8_t *header = static_cast<const uint8_t *>(
+        MapViewOfFile(
+            mc_overlay.mapping,
+            FILE_MAP_READ,
+            0,
+            0,
+            MC_OVERLAY_HEADER
+        )
+    );
+    if (header == nullptr) {
         mc_overlay_close_mapping();
         return false;
     }
+
+    uint32_t magic;
+    uint32_t version;
+    int32_t slots;
+    int64_t stride;
+    memcpy(&magic, header + 0, sizeof(magic));
+    memcpy(&version, header + 4, sizeof(version));
+    memcpy(&slots, header + 12, sizeof(slots));
+    memcpy(&stride, header + 16, sizeof(stride));
+
+    UnmapViewOfFile(header);
+
+    if (magic != MC_OVERLAY_MAGIC
+            || version != MC_OVERLAY_VERSION
+            || slots <= 0
+            || slots > 8
+            || stride <= 0
+            || (uint64_t) stride > MC_OVERLAY_MAX_LAYER_BYTES * 3ull) {
+        mc_overlay_close_mapping();
+        return false;
+    }
+
+    uint64_t bytes =
+        (uint64_t) MC_OVERLAY_HEADER
+        + (uint64_t) stride * (uint64_t) slots;
 
     mc_overlay.view = static_cast<const uint8_t *>(
         MapViewOfFile(
@@ -152,20 +170,18 @@ static bool mc_overlay_open_mapping(void) {
             FILE_MAP_READ,
             0,
             0,
-            0
+            (SIZE_T) bytes
         )
     );
+
     if (mc_overlay.view == nullptr) {
         mc_overlay_close_mapping();
         return false;
     }
 
-    if (mc_overlay_read<uint32_t>(0) != MC_OVERLAY_MAGIC
-            || mc_overlay_read<uint32_t>(4) != MC_OVERLAY_VERSION) {
-        mc_overlay_close_mapping();
-        return false;
-    }
-
+    mc_overlay.view_bytes = (SIZE_T) bytes;
+    mc_overlay.slots = slots;
+    mc_overlay.stride = stride;
     return true;
 }
 
@@ -247,14 +263,33 @@ cbuffer OverlayConstants : register(b0) {
     float McAspect;
     float HostAspect;
     float DepthBias;
-    float Padding;
+    float McFlags;
 };
 
-float linear_depth(float d, float n, float f) {
+float mc_linear_depth(float d) {
+    bool reversed = fmod(floor(McFlags / 4.0), 2.0) > 0.5;
+
+    if (reversed) {
+        if (d <= 0.000001) {
+            return 1.0e20;
+        }
+        return (McNear * McFar)
+            / max(McNear + d * (McFar - McNear), 1.0e-6);
+    }
+
     if (d >= 0.999999) {
         return 1.0e20;
     }
-    return (n * f) / max(f - d * (f - n), 1.0e-6);
+    return (McNear * McFar)
+        / max(McFar - d * (McFar - McNear), 1.0e-6);
+}
+
+float host_linear_depth(float d) {
+    if (d >= 0.999999) {
+        return 1.0e20;
+    }
+    return (HostNear * HostFar)
+        / max(HostFar - d * (HostFar - HostNear), 1.0e-6);
 }
 
 float4 PSMain(VSOutput input) : SV_TARGET {
@@ -265,9 +300,10 @@ float4 PSMain(VSOutput input) : SV_TARGET {
      */
     float ndc_x = input.uv.x * 2.0 - 1.0;
     float mc_ndc_x = ndc_x * HostAspect / max(McAspect, 1.0e-6);
+    bool bottom_up = fmod(floor(McFlags / 2.0), 2.0) > 0.5;
     float2 mc_uv = float2(
         mc_ndc_x * 0.5 + 0.5,
-        1.0 - input.uv.y
+        bottom_up ? (1.0 - input.uv.y) : input.uv.y
     );
 
     bool inside = all(mc_uv >= 0.0) && all(mc_uv <= 1.0);
@@ -283,8 +319,8 @@ float4 PSMain(VSOutput input) : SV_TARGET {
     }
 
     float host_d = HostDepth.Sample(PointSampler, input.uv).r;
-    float mc_z = linear_depth(mc_d, McNear, McFar);
-    float host_z = linear_depth(host_d, HostNear, HostFar);
+    float mc_z = mc_linear_depth(mc_d);
+    float host_z = host_linear_depth(host_d);
 
     /*
      * Depth==1 is Minecraft sky/clear background. It must never cover SM64.
@@ -292,7 +328,7 @@ float4 PSMain(VSOutput input) : SV_TARGET {
      * the native SM64 surface at that pixel.
      */
     float world_visible =
-        inside && mc_d < 0.999999 && mc_z <= host_z + DepthBias
+        inside && mc_z < 1.0e19 && mc_z <= host_z + DepthBias
         ? 1.0
         : 0.0;
 
@@ -579,23 +615,38 @@ static bool mc_overlay_ensure_textures(
 
 static bool mc_overlay_upload_latest(
         float &mc_near,
-        float &mc_far
+        float &mc_far,
+        int32_t &mc_flags
 ) {
     if (!mc_overlay_open_mapping()) {
         return false;
     }
 
-    uint64_t seq_before = mc_overlay_read<uint64_t>(16);
-    if ((seq_before & 1ull) != 0ull
-            || seq_before == 0
-            || seq_before == mc_overlay.last_sequence) {
-        return mc_overlay.last_sequence != 0;
+    int64_t published = mc_overlay_read<int64_t>(32);
+    if (published == mc_overlay.last_publish) {
+        return mc_overlay.last_publish >= 0;
+    }
+
+    int32_t slot = mc_overlay_read<int32_t>(40);
+    if (slot < 0 || slot >= mc_overlay.slots) {
+        return false;
+    }
+
+    size_t desc_offset =
+        MC_OVERLAY_SLOT_DESC
+        + (size_t) MC_OVERLAY_SLOT_DESC_BYTES * (size_t) slot;
+
+    uint64_t seq_before = mc_overlay_read<uint64_t>(desc_offset);
+    if ((seq_before & 1ull) != 0ull) {
+        return false;
     }
 
     MemoryBarrier();
 
-    uint32_t width = mc_overlay_read<uint32_t>(8);
-    uint32_t height = mc_overlay_read<uint32_t>(12);
+    uint32_t width =
+        mc_overlay_read<uint32_t>(desc_offset + 24);
+    uint32_t height =
+        mc_overlay_read<uint32_t>(desc_offset + 28);
 
     if (width == 0
             || height == 0
@@ -604,11 +655,14 @@ static bool mc_overlay_upload_latest(
         return false;
     }
 
-    uint64_t pixels = (uint64_t) width * height;
-    uint64_t bytes = pixels * 4ull;
-    uint64_t end = MC_OVERLAY_HEADER + bytes * 3ull;
+    uint64_t layer_bytes =
+        (uint64_t) width * (uint64_t) height * 4ull;
+    uint64_t base =
+        (uint64_t) MC_OVERLAY_HEADER
+        + (uint64_t) mc_overlay.stride * (uint64_t) slot;
+    uint64_t end = base + layer_bytes * 3ull;
 
-    if (end > MC_OVERLAY_FILE_BYTES) {
+    if (end > (uint64_t) mc_overlay.view_bytes) {
         return false;
     }
 
@@ -616,9 +670,9 @@ static bool mc_overlay_upload_latest(
         return false;
     }
 
-    const uint8_t *world = mc_overlay.view + MC_OVERLAY_HEADER;
-    const uint8_t *depth = world + bytes;
-    const uint8_t *overlay = depth + bytes;
+    const uint8_t *world = mc_overlay.view + base;
+    const uint8_t *depth = world + layer_bytes;
+    const uint8_t *overlay = depth + layer_bytes;
 
     d3d.context->UpdateSubresource(
         mc_overlay.world_texture.Get(),
@@ -647,20 +701,22 @@ static bool mc_overlay_upload_latest(
 
     MemoryBarrier();
 
-    uint64_t seq_after = mc_overlay_read<uint64_t>(16);
+    uint64_t seq_after = mc_overlay_read<uint64_t>(desc_offset);
     if (seq_after != seq_before || (seq_after & 1ull) != 0ull) {
-        return mc_overlay.last_sequence != 0;
+        return false;
     }
 
-    mc_near = mc_overlay_read<float>(36);
-    mc_far = mc_overlay_read<float>(40);
+    mc_near = mc_overlay_read<float>(desc_offset + 32);
+    mc_far = mc_overlay_read<float>(desc_offset + 36);
+    mc_flags = mc_overlay_read<int32_t>(desc_offset + 44);
 
     if (!(mc_near > 0.0f) || !(mc_far > mc_near)) {
         mc_near = 0.05f;
         mc_far = 256.0f;
     }
 
-    mc_overlay.last_sequence = seq_after;
+    mc_overlay.mc_flags = mc_flags;
+    mc_overlay.last_publish = published;
     return true;
 }
 
@@ -790,8 +846,9 @@ static void mc_overlay_render(void) {
 
     float mc_near = 0.05f;
     float mc_far = 256.0f;
+    int32_t mc_flags = 0;
 
-    if (!mc_overlay_upload_latest(mc_near, mc_far)
+    if (!mc_overlay_upload_latest(mc_near, mc_far, mc_flags)
             || !mc_overlay_init_pipeline()) {
         return;
     }
@@ -824,6 +881,7 @@ static void mc_overlay_render(void) {
     constants.host_aspect =
         (float) d3d.current_width / (float) d3d.current_height;
     constants.depth_bias = 0.08f;
+    constants.mc_flags = (float) mc_flags;
 
     memcpy(
         mapped_cb.pData,

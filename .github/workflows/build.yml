@@ -40,6 +40,7 @@ jobs:
         run: |
           mkdir -p vendor
           git clone --depth 1 https://github.com/sm64-port/sm64-port.git vendor/sm64-port
+          git clone --depth 1 https://github.com/rehan-remade/universal-modder vendor/universal-modder
           python - <<'PY'
           import tools.prepare_passthrough as p
           p.patch_sm64_port_toolchain()

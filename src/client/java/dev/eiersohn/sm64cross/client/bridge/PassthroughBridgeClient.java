@@ -1,6 +1,7 @@
 package dev.eiersohn.sm64cross.client.bridge;
 
 import dev.eiersohn.sm64cross.Sm64CrossMod;
+import dev.eiersohn.sm64cross.client.Sm64Keys;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.item.ItemStack;
@@ -70,19 +71,27 @@ public final class PassthroughBridgeClient {
         }
         previousAttackDown = attackDown;
 
-        int moveForward = gameplayInput && client.options.keyUp.isDown() ? 1 : 0;
-        int moveBack = gameplayInput && client.options.keyDown.isDown() ? 1 : 0;
-        int moveLeft = gameplayInput && client.options.keyLeft.isDown() ? 1 : 0;
-        int moveRight = gameplayInput && client.options.keyRight.isDown() ? 1 : 0;
+        CombatProfile combat = CombatProfile.forItem(itemId);
+
+        int forward = gameplayInput && client.options.keyUp.isDown() ? 1 : 0;
+        int back = gameplayInput && client.options.keyDown.isDown() ? 1 : 0;
+        int left = gameplayInput && client.options.keyLeft.isDown() ? 1 : 0;
+        int right = gameplayInput && client.options.keyRight.isDown() ? 1 : 0;
         int jump = gameplayInput && client.options.keyJump.isDown() ? 1 : 0;
         int sneak = gameplayInput && client.player.isShiftKeyDown() ? 1 : 0;
         int sprint = gameplayInput && client.player.isSprinting() ? 1 : 0;
 
-        CombatProfile combat = CombatProfile.forItem(itemId);
+        int start = gameplayInput && Sm64Keys.START.isDown() ? 1 : 0;
+        int cameraUp = gameplayInput && Sm64Keys.CAMERA_UP.isDown() ? 1 : 0;
+        int cameraDown = gameplayInput && Sm64Keys.CAMERA_DOWN.isDown() ? 1 : 0;
+        int cameraLeft = gameplayInput && Sm64Keys.CAMERA_LEFT.isDown() ? 1 : 0;
+        int cameraRight = gameplayInput && Sm64Keys.CAMERA_RIGHT.isDown() ? 1 : 0;
+        int rTrigger = gameplayInput && Sm64Keys.R_TRIGGER.isDown() ? 1 : 0;
+        int lTrigger = gameplayInput && Sm64Keys.L_TRIGGER.isDown() ? 1 : 0;
 
         String payload = String.format(
                 Locale.ROOT,
-                "P|%d|%.6f|%.6f|%.6f|%.4f|%.4f|%s|%d|%s|%.2f|%d|%d|%d|%d|%d|%d|%d|%d|%d|%.3f|%d\n",
+                "P|%d|%.6f|%.6f|%.6f|%.4f|%.4f|%s|%d|%s|%.2f|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%.3f|%d\n",
                 sequence++,
                 client.player.getX(),
                 client.player.getY(),
@@ -94,14 +103,22 @@ public final class PassthroughBridgeClient {
                 combat.kind,
                 combat.reachBlocks,
                 combat.power,
+                attackDown ? 1 : 0,
                 useDown ? 1 : 0,
-                moveForward,
-                moveBack,
-                moveLeft,
-                moveRight,
+                forward,
+                back,
+                left,
+                right,
                 jump,
                 sneak,
                 sprint,
+                start,
+                cameraUp,
+                cameraDown,
+                cameraLeft,
+                cameraRight,
+                rTrigger,
+                lTrigger,
                 client.player.getHealth(),
                 client.player.getFoodData().getFoodLevel()
         );
@@ -157,7 +174,7 @@ public final class PassthroughBridgeClient {
 
     private static void parseHostState(String message) {
         String[] fields = message.split("\\|");
-        if (fields.length < 19) {
+        if (fields.length < 23) {
             return;
         }
 
@@ -169,19 +186,23 @@ public final class PassthroughBridgeClient {
                     Integer.parseInt(fields[3]),
                     Integer.parseInt(fields[4]),
                     Integer.parseInt(fields[5]),
-                    fields[6],
-                    Double.parseDouble(fields[7]),
-                    Double.parseDouble(fields[8]),
-                    Double.parseDouble(fields[9]),
-                    Double.parseDouble(fields[10]),
+                    Integer.parseInt(fields[6]),
+                    Integer.parseInt(fields[7]),
+                    Long.parseLong(fields[8]),
+                    Long.parseLong(fields[9]),
+                    fields[10],
                     Double.parseDouble(fields[11]),
                     Double.parseDouble(fields[12]),
                     Double.parseDouble(fields[13]),
                     Double.parseDouble(fields[14]),
                     Double.parseDouble(fields[15]),
-                    Integer.parseInt(fields[16]),
-                    Long.parseLong(fields[17]),
-                    Integer.parseInt(fields[18])
+                    Double.parseDouble(fields[16]),
+                    Double.parseDouble(fields[17]),
+                    Double.parseDouble(fields[18]),
+                    Double.parseDouble(fields[19]),
+                    Integer.parseInt(fields[20]),
+                    Long.parseLong(fields[21]),
+                    Integer.parseInt(fields[22])
             );
 
             if (!hostSeen) {
@@ -250,8 +271,12 @@ public final class PassthroughBridgeClient {
             long acknowledgedSequence,
             int level,
             int area,
+            int course,
+            int act,
             int stars,
             int health,
+            long saveFlags,
+            long courseStarFlags,
             String status,
             double playerX,
             double playerY,
@@ -268,7 +293,8 @@ public final class PassthroughBridgeClient {
     ) {
         static HostState disconnected() {
             return new HostState(
-                    false, -1, -1, -1, 0, 0, "disconnected",
+                    false, -1, -1, -1, -1, -1, 0, 0,
+                    0L, 0L, "disconnected",
                     0.0, 0.0, 0.0,
                     0.0, 0.0, 0.0,
                     0.0, 0.0, 0.0,

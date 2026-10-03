@@ -1,3 +1,11 @@
 {
-  "item.sm64cross.power_star": "Power-Stern"
+  "item.sm64cross.power_star": "Power-Stern",
+  "key.categories.sm64cross": "SM64 Crossmod",
+  "key.sm64cross.start": "SM64 Start/Pause",
+  "key.sm64cross.camera_up": "SM64 Kamera hoch",
+  "key.sm64cross.camera_down": "SM64 Kamera runter",
+  "key.sm64cross.camera_left": "SM64 Kamera links",
+  "key.sm64cross.camera_right": "SM64 Kamera rechts",
+  "key.sm64cross.r_trigger": "SM64 R-Taste",
+  "key.sm64cross.l_trigger": "SM64 L-Taste"
 }

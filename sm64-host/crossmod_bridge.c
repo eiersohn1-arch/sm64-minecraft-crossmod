@@ -27,6 +27,7 @@ typedef int crossmod_socket_t;
 #include "game/interaction.h"
 #include "game/mario.h"
 #include "game/object_list_processor.h"
+#include "game/save_file.h"
 #include "engine/math_util.h"
 #include "engine/graph_node.h"
 #include "object_constants.h"
@@ -65,6 +66,7 @@ struct CrossmodPlayerPacket {
     char weapon_kind[24];
     float reach_blocks;
     int power;
+    int attack_down;
     int use;
     int forward;
     int back;
@@ -73,6 +75,13 @@ struct CrossmodPlayerPacket {
     int jump;
     int sneak;
     int sprint;
+    int start;
+    int camera_up;
+    int camera_down;
+    int camera_left;
+    int camera_right;
+    int r_trigger;
+    int l_trigger;
     float health;
     int food;
 };
@@ -161,7 +170,7 @@ static int parse_player_packet(
 ) {
     int count = sscanf(
             text,
-            "P|%lu|%lf|%lf|%lf|%f|%f|%95[^|]|%lu|%23[^|]|%f|%d|%d|%d|%d|%d|%d|%d|%d|%d|%f|%d",
+            "P|%lu|%lf|%lf|%lf|%f|%f|%95[^|]|%lu|%23[^|]|%f|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%f|%d",
             &packet->sequence,
             &packet->minecraft_x,
             &packet->minecraft_y,
@@ -173,6 +182,7 @@ static int parse_player_packet(
             packet->weapon_kind,
             &packet->reach_blocks,
             &packet->power,
+            &packet->attack_down,
             &packet->use,
             &packet->forward,
             &packet->back,
@@ -181,11 +191,18 @@ static int parse_player_packet(
             &packet->jump,
             &packet->sneak,
             &packet->sprint,
+            &packet->start,
+            &packet->camera_up,
+            &packet->camera_down,
+            &packet->camera_left,
+            &packet->camera_right,
+            &packet->r_trigger,
+            &packet->l_trigger,
             &packet->health,
             &packet->food
     );
 
-    return count == 21;
+    return count == 29;
 }
 
 void crossmod_bridge_poll(void) {
@@ -275,15 +292,37 @@ void crossmod_bridge_apply_controller(struct Controller *controller) {
     }
 
     /*
-     * Right click is SM64's B/use action. Minecraft left click remains the
-     * weapon bridge and therefore does not force Mario's punch action.
+     * B remains available for every original mission mechanic:
+     * punching, grabbing, throwing Big Bob-omb/Bowser, signs and object use.
+     * Left click is also B, while weapon metadata can add Minecraft damage.
      */
-    if (s_player.use) {
+    if (s_player.attack_down || s_player.use) {
         buttons |= B_BUTTON;
     }
 
     if (s_player.sneak) {
         buttons |= Z_TRIG;
+    }
+    if (s_player.start) {
+        buttons |= START_BUTTON;
+    }
+    if (s_player.camera_up) {
+        buttons |= U_CBUTTONS;
+    }
+    if (s_player.camera_down) {
+        buttons |= D_CBUTTONS;
+    }
+    if (s_player.camera_left) {
+        buttons |= L_CBUTTONS;
+    }
+    if (s_player.camera_right) {
+        buttons |= R_CBUTTONS;
+    }
+    if (s_player.r_trigger) {
+        buttons |= R_TRIG;
+    }
+    if (s_player.l_trigger) {
+        buttons |= L_TRIG;
     }
 
     controller->buttonPressed =
@@ -431,7 +470,7 @@ static void send_state(const struct MarioState *m) {
         return;
     }
 
-    char response[768];
+    char response[1024];
 
     int camera_mode = 0;
     float camera_x = 0.0f;
@@ -451,15 +490,33 @@ static void send_state(const struct MarioState *m) {
         focus_z = gLakituState.curFocus[2];
     }
 
+    u32 save_flags = 0;
+    u32 course_star_flags = 0;
+
+    if (gCurrSaveFileNum > 0) {
+        save_flags = save_file_get_flags();
+
+        if (gCurrCourseNum > 0) {
+            course_star_flags = save_file_get_star_flags(
+                    gCurrSaveFileNum - 1,
+                    gCurrCourseNum - 1
+            );
+        }
+    }
+
     int length = snprintf(
             response,
             sizeof(response),
-            "S|%lu|%d|%d|%d|%d|native|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%d|%lu|%d\n",
+            "S|%lu|%d|%d|%d|%d|%d|%d|%lu|%lu|native|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%d|%lu|%d\n",
             s_player.sequence,
             (int) gCurrLevelNum,
             (int) gCurrAreaIndex,
+            (int) gCurrCourseNum,
+            (int) gCurrActNum,
             (int) m->numStars,
             (int) m->health,
+            (unsigned long) save_flags,
+            (unsigned long) course_star_flags,
             m->pos[0],
             m->pos[1],
             m->pos[2],
@@ -492,7 +549,7 @@ void crossmod_bridge_after_mario_update(struct MarioState *m) {
     }
 
     /*
-     * SM64 now keeps complete authority over Mario's native physics/actions.
+     * SM64 keeps complete authority over Mario's native physics/actions.
      * We only hide the Mario model and use him as Steve's interaction body.
      */
     m->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;

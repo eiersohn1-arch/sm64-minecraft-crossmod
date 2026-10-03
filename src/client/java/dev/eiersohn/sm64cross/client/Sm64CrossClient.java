@@ -7,6 +7,7 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 public final class Sm64CrossClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
+        Sm64Keys.register();
         PassthroughBridgeClient.start();
 
         ClientTickEvents.END_CLIENT_TICK.register(client ->

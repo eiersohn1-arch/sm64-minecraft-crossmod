@@ -14,7 +14,7 @@ bool crossmod_bridge_active(void);
 /*
  * Native-authority mode:
  * Minecraft supplies controls/items, while SM64 owns movement, collision,
- * actions, warps and progression for the entire game.
+ * actions, missions, warps, save data and progression for the whole game.
  */
 void crossmod_bridge_apply_controller(struct Controller *controller);
 void crossmod_bridge_after_mario_update(struct MarioState *m);

@@ -272,6 +272,12 @@ def main() -> int:
         shutil.copy2(ROM, SM64_PORT / "baserom.us.z64")
         patch_sm64_port_toolchain()
         install_bridge()
+        run([
+            sys.executable,
+            str(ROOT / "tools" / "verify_whole_game.py"),
+            "--sm64-port",
+            str(SM64_PORT),
+        ])
 
         print()
         print("Passthrough sources prepared.")

@@ -26,6 +26,9 @@ jobs:
           test -f sm64-host/crossmod_bridge.c
           test -f sm64-host/crossmod_bridge.h
           grep -q "crossmod_bridge_apply_controller" sm64-host/crossmod_bridge.c
+          grep -q "crossmod_ws_start" sm64-host/crossmod_ws_api.cpp
+          grep -q "MCPassthroughFrame" src/client/java/dev/eiersohn/sm64cross/client/render/Sm64FrameExporter.java
+          grep -q "WebSocketServer" src/client/java/dev/eiersohn/sm64cross/client/bridge/HostLink.java
           grep -q "crossmod_bridge_after_mario_update" sm64-host/crossmod_bridge.c
           grep -q "GRAPH_RENDER_INVISIBLE" sm64-host/crossmod_bridge.c
           grep -q "crossmod_process_combat" sm64-host/crossmod_bridge.c
@@ -46,6 +49,9 @@ jobs:
           grep -q "crossmod_bridge_apply_controller(gPlayer1Controller)" vendor/sm64-port/src/game/game_init.c
           grep -q "crossmod_bridge_after_mario_update(gMarioState)" vendor/sm64-port/src/game/mario.c
           grep -q "crossmod_bridge_poll" vendor/sm64-port/src/pc/pc_main.c
+          test -f vendor/sm64-port/src/pc/ws.cpp
+          test -f vendor/sm64-port/src/pc/ws.h
+          test -f vendor/sm64-port/src/pc/crossmod_ws_api.cpp
           test -f vendor/sm64-port/src/pc/gfx/mc_overlay_dx11.inc
           grep -q "mc_overlay_render" vendor/sm64-port/src/pc/gfx/gfx_direct3d11.cpp
           grep -q "depth_shader_resource_view" vendor/sm64-port/src/pc/gfx/gfx_direct3d11.cpp

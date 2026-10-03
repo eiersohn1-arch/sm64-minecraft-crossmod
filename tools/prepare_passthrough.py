@@ -134,6 +134,32 @@ def install_bridge() -> None:
         SM64_PORT / "src" / "pc" / "crossmod_bridge.h",
     )
     shutil.copy2(
+        ROOT / "sm64-host" / "crossmod_ws_api.h",
+        SM64_PORT / "src" / "pc" / "crossmod_ws_api.h",
+    )
+    shutil.copy2(
+        ROOT / "sm64-host" / "crossmod_ws_api.cpp",
+        SM64_PORT / "src" / "pc" / "crossmod_ws_api.cpp",
+    )
+
+    # Use the WebSocket implementation directly from the exact
+    # universal-modder clone requested by the project owner.
+    universal_ws = (
+        UNIVERSAL_MODDER
+        / "examples"
+        / "minecraft-gta5-passthrough"
+        / "gta"
+        / "src"
+    )
+    shutil.copy2(
+        universal_ws / "ws.h",
+        SM64_PORT / "src" / "pc" / "ws.h",
+    )
+    shutil.copy2(
+        universal_ws / "ws.cpp",
+        SM64_PORT / "src" / "pc" / "ws.cpp",
+    )
+    shutil.copy2(
         ROOT / "sm64-host" / "mc_overlay_dx11.inc",
         SM64_PORT / "src" / "pc" / "gfx" / "mc_overlay_dx11.inc",
     )
@@ -332,7 +358,7 @@ def install_bridge() -> None:
     patch_once(
         makefile,
         "  PLATFORM_LDFLAGS := -lm -lxinput9_1_0 -lole32 -no-pie -mwindows",
-        "  PLATFORM_LDFLAGS := -lm -lxinput9_1_0 -lole32 -lws2_32 -no-pie -mwindows",
+        "  PLATFORM_LDFLAGS := -lm -lxinput9_1_0 -lole32 -lws2_32 -pthread -no-pie -mwindows",
     )
 
 
@@ -402,7 +428,8 @@ def main() -> int:
         ])
 
         print()
-        print("Passthrough sources prepared.")
+        print("Universal Modder passthrough sources prepared.")
+        print("Transport: localhost WebSocket + Local\\\\MCPassthroughFrame named shared memory.")
         print("SM64 keeps its original renderer, levels, textures, enemies and objects.")
         print("Mario is hidden when Minecraft connects and becomes an invisible interaction proxy.")
 

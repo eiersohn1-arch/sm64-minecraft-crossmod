@@ -5,21 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#include <winsock2.h>
-#include <ws2tcpip.h>
-typedef SOCKET crossmod_socket_t;
-#define CROSSMOD_INVALID_SOCKET INVALID_SOCKET
-#else
-#include <arpa/inet.h>
-#include <fcntl.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
-typedef int crossmod_socket_t;
-#define CROSSMOD_INVALID_SOCKET (-1)
-#endif
+#include "crossmod_ws_api.h"
 
 #include "game/area.h"
 #include "game/camera.h"
@@ -36,7 +22,6 @@ typedef int crossmod_socket_t;
 
 extern struct CameraFOVStatus sFOVState;
 
-#define CROSSMOD_PORT 6464
 #define CROSSMOD_SCALE 100.0f
 #define CROSSMOD_MIN_MELEE_REACH 220.0f
 #define CROSSMOD_MAX_MELEE_REACH 520.0f
@@ -59,11 +44,6 @@ extern struct CameraFOVStatus sFOVState;
 
 struct CrossmodPlayerPacket {
     unsigned long sequence;
-    double minecraft_x;
-    double minecraft_y;
-    double minecraft_z;
-    float yaw;
-    float pitch;
     char held_item[96];
     unsigned long attack_serial;
     unsigned long use_serial;
@@ -72,28 +52,11 @@ struct CrossmodPlayerPacket {
     int power;
     int attack_down;
     int use;
-    int forward;
-    int back;
-    int left;
-    int right;
-    int jump;
-    int sneak;
-    int sprint;
-    int start;
-    int camera_up;
-    int camera_down;
-    int camera_left;
-    int camera_right;
-    int r_trigger;
-    int l_trigger;
+    unsigned int keys;
     float health;
     int food;
 };
 
-static crossmod_socket_t s_socket = CROSSMOD_INVALID_SOCKET;
-static struct sockaddr_in s_client_addr;
-static socklen_t s_client_addr_len = sizeof(s_client_addr);
-static int s_has_client;
 static int s_has_player;
 static struct CrossmodPlayerPacket s_player;
 
@@ -102,86 +65,34 @@ static unsigned long s_last_processed_use_serial;
 static unsigned long s_last_hit_attack_serial;
 static int s_last_hit_count;
 
-static void crossmod_close_socket(void) {
-    if (s_socket == CROSSMOD_INVALID_SOCKET) {
-        return;
-    }
-#ifdef _WIN32
-    closesocket(s_socket);
-#else
-    close(s_socket);
-#endif
-    s_socket = CROSSMOD_INVALID_SOCKET;
-}
-
-static void crossmod_set_nonblocking(crossmod_socket_t socket_handle) {
-#ifdef _WIN32
-    u_long enabled = 1;
-    ioctlsocket(socket_handle, FIONBIO, &enabled);
-#else
-    int flags = fcntl(socket_handle, F_GETFL, 0);
-    if (flags >= 0) {
-        fcntl(socket_handle, F_SETFL, flags | O_NONBLOCK);
-    }
-#endif
-}
-
 void crossmod_bridge_init(void) {
-    struct sockaddr_in address;
-
-    if (s_socket != CROSSMOD_INVALID_SOCKET) {
-        return;
-    }
-
-#ifdef _WIN32
-    WSADATA data;
-    if (WSAStartup(MAKEWORD(2, 2), &data) != 0) {
-        return;
-    }
-#endif
-
-    s_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (s_socket == CROSSMOD_INVALID_SOCKET) {
-        return;
-    }
-
-    memset(&address, 0, sizeof(address));
-    address.sin_family = AF_INET;
-    address.sin_port = htons(CROSSMOD_PORT);
-    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-
-    if (bind(s_socket, (const struct sockaddr *)&address, sizeof(address)) != 0) {
-        crossmod_close_socket();
-        return;
-    }
-
-    crossmod_set_nonblocking(s_socket);
+    crossmod_ws_start();
 }
 
 void crossmod_bridge_shutdown(void) {
-    crossmod_close_socket();
-#ifdef _WIN32
-    WSACleanup();
-#endif
+    crossmod_ws_stop();
 }
 
 bool crossmod_bridge_active(void) {
-    return s_has_player != 0;
+    return s_has_player != 0 && crossmod_ws_connected();
 }
 
 static int parse_player_packet(
         const char *text,
         struct CrossmodPlayerPacket *packet
 ) {
+    if (text == NULL
+            || strncmp(text, "{\"t\":\"input\"", 12) != 0) {
+        return 0;
+    }
+
     int count = sscanf(
             text,
-            "P|%lu|%lf|%lf|%lf|%f|%f|%95[^|]|%lu|%lu|%23[^|]|%f|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%f|%d",
+            "{\"t\":\"input\",\"seq\":%lu,\"item\":\"%95[^\"]\","
+            "\"attack\":%lu,\"use\":%lu,\"weapon\":\"%23[^\"]\","
+            "\"reach\":%f,\"power\":%d,\"attackDown\":%d,"
+            "\"useDown\":%d,\"keys\":%u,\"health\":%f,\"food\":%d}",
             &packet->sequence,
-            &packet->minecraft_x,
-            &packet->minecraft_y,
-            &packet->minecraft_z,
-            &packet->yaw,
-            &packet->pitch,
             packet->held_item,
             &packet->attack_serial,
             &packet->use_serial,
@@ -190,52 +101,23 @@ static int parse_player_packet(
             &packet->power,
             &packet->attack_down,
             &packet->use,
-            &packet->forward,
-            &packet->back,
-            &packet->left,
-            &packet->right,
-            &packet->jump,
-            &packet->sneak,
-            &packet->sprint,
-            &packet->start,
-            &packet->camera_up,
-            &packet->camera_down,
-            &packet->camera_left,
-            &packet->camera_right,
-            &packet->r_trigger,
-            &packet->l_trigger,
+            &packet->keys,
             &packet->health,
             &packet->food
     );
 
-    return count == 30;
+    return count == 12;
 }
 
 void crossmod_bridge_poll(void) {
-    char buffer[2048];
+    char buffer[4096];
 
-    if (s_socket == CROSSMOD_INVALID_SOCKET) {
+    if (!crossmod_ws_connected()) {
+        s_has_player = 0;
         return;
     }
 
-    for (;;) {
-        struct sockaddr_in from;
-        socklen_t from_len = sizeof(from);
-        int received = (int) recvfrom(
-                s_socket,
-                buffer,
-                sizeof(buffer) - 1,
-                0,
-                (struct sockaddr *)&from,
-                &from_len
-        );
-
-        if (received <= 0) {
-            break;
-        }
-
-        buffer[received] = '\0';
-
+    while (crossmod_ws_poll_message(buffer, sizeof(buffer))) {
         struct CrossmodPlayerPacket next;
         memset(&next, 0, sizeof(next));
 
@@ -244,9 +126,6 @@ void crossmod_bridge_poll(void) {
         }
 
         s_player = next;
-        s_client_addr = from;
-        s_client_addr_len = from_len;
-        s_has_client = 1;
         s_has_player = 1;
     }
 }
@@ -285,51 +164,26 @@ void crossmod_bridge_apply_controller(struct Controller *controller) {
         return;
     }
 
-    int x = (s_player.right ? 1 : 0) - (s_player.left ? 1 : 0);
-    int y = (s_player.forward ? 1 : 0) - (s_player.back ? 1 : 0);
+    int x = ((s_player.keys & 8u) ? 1 : 0)
+            - ((s_player.keys & 4u) ? 1 : 0);
+    int y = ((s_player.keys & 1u) ? 1 : 0)
+            - ((s_player.keys & 2u) ? 1 : 0);
 
     controller->rawStickX = (s8) (x * 127);
     controller->rawStickY = (s8) (y * 127);
 
     u16 buttons = 0;
 
-    if (s_player.jump) {
-        buttons |= A_BUTTON;
-    }
-
-    /*
-     * B remains available for every original mission mechanic:
-     * punching, grabbing, throwing Big Bob-omb/Bowser, signs and object use.
-     * Left click is also B, while weapon metadata can add Minecraft damage.
-     */
-    if (s_player.attack_down || s_player.use) {
-        buttons |= B_BUTTON;
-    }
-
-    if (s_player.sneak) {
-        buttons |= Z_TRIG;
-    }
-    if (s_player.start) {
-        buttons |= START_BUTTON;
-    }
-    if (s_player.camera_up) {
-        buttons |= U_CBUTTONS;
-    }
-    if (s_player.camera_down) {
-        buttons |= D_CBUTTONS;
-    }
-    if (s_player.camera_left) {
-        buttons |= L_CBUTTONS;
-    }
-    if (s_player.camera_right) {
-        buttons |= R_CBUTTONS;
-    }
-    if (s_player.r_trigger) {
-        buttons |= R_TRIG;
-    }
-    if (s_player.l_trigger) {
-        buttons |= L_TRIG;
-    }
+    if (s_player.keys & 16u) buttons |= A_BUTTON;
+    if (s_player.attack_down || s_player.use) buttons |= B_BUTTON;
+    if (s_player.keys & 32u) buttons |= Z_TRIG;
+    if (s_player.keys & 128u) buttons |= START_BUTTON;
+    if (s_player.keys & 256u) buttons |= U_CBUTTONS;
+    if (s_player.keys & 512u) buttons |= D_CBUTTONS;
+    if (s_player.keys & 1024u) buttons |= L_CBUTTONS;
+    if (s_player.keys & 2048u) buttons |= R_CBUTTONS;
+    if (s_player.keys & 4096u) buttons |= R_TRIG;
+    if (s_player.keys & 8192u) buttons |= L_TRIG;
 
     controller->buttonPressed =
             buttons & (buttons ^ controller->buttonDown);
@@ -641,29 +495,40 @@ static void crossmod_process_combat(struct MarioState *m) {
 }
 
 static void send_state(const struct MarioState *m) {
-    if (!s_has_client || s_socket == CROSSMOD_INVALID_SOCKET || m == NULL) {
+    if (!crossmod_ws_connected() || m == NULL) {
         return;
     }
 
-    char response[1024];
+    char response[2048];
 
-    int camera_mode = 0;
     float camera_x = 0.0f;
     float camera_y = 0.0f;
     float camera_z = 0.0f;
     float focus_x = 0.0f;
     float focus_y = 0.0f;
-    float focus_z = 0.0f;
+    float focus_z = -1.0f;
 
     if (gCurrentArea != NULL && gCurrentArea->camera != NULL) {
-        camera_mode = gLakituState.mode;
-        camera_x = gLakituState.curPos[0];
-        camera_y = gLakituState.curPos[1];
-        camera_z = gLakituState.curPos[2];
-        focus_x = gLakituState.curFocus[0];
-        focus_y = gLakituState.curFocus[1];
-        focus_z = gLakituState.curFocus[2];
+        camera_x = gLakituState.curPos[0] / CROSSMOD_SCALE;
+        camera_y = gLakituState.curPos[1] / CROSSMOD_SCALE;
+        camera_z = -gLakituState.curPos[2] / CROSSMOD_SCALE;
+        focus_x = gLakituState.curFocus[0] / CROSSMOD_SCALE;
+        focus_y = gLakituState.curFocus[1] / CROSSMOD_SCALE;
+        focus_z = -gLakituState.curFocus[2] / CROSSMOD_SCALE;
     }
+
+    float dx = focus_x - camera_x;
+    float dy = focus_y - camera_y;
+    float dz = focus_z - camera_z;
+    float horizontal = sqrtf(dx * dx + dz * dz);
+    float yaw = atan2f(-dx, dz) * 57.295779513f;
+    float pitch = -atan2f(
+            dy,
+            horizontal > 0.000001f ? horizontal : 0.000001f
+    ) * 57.295779513f;
+
+    float body_yaw =
+            -(float) m->faceAngle[1] * 360.0f / 65536.0f;
 
     u32 save_flags = 0;
     u32 course_star_flags = 0;
@@ -679,11 +544,31 @@ static void send_state(const struct MarioState *m) {
         }
     }
 
-    int length = snprintf(
+    snprintf(
             response,
             sizeof(response),
-            "S|%lu|%d|%d|%d|%d|%d|%d|%lu|%lu|native|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%d|%lu|%d|%d|%.3f|%d|%d|%d|%u\n",
+            "{\"t\":\"cam\",\"f\":%lu,"
+            "\"p\":[%.6f,%.6f,%.6f],"
+            "\"r\":[%.4f,%.4f,0.0],"
+            "\"fov\":%.3f,"
+            "\"pl\":[%.6f,%.6f,%.6f],"
+            "\"h\":%.4f,"
+            "\"level\":%d,\"area\":%d,\"course\":%d,\"act\":%d,"
+            "\"stars\":%d,\"health\":%d,"
+            "\"save\":%lu,\"courseStars\":%lu,"
+            "\"coins\":%d,\"lives\":%d,\"hud\":%d,\"timer\":%u,"
+            "\"hitSerial\":%lu,\"hitCount\":%d}",
             s_player.sequence,
+            camera_x,
+            camera_y,
+            camera_z,
+            yaw,
+            pitch,
+            (double) sFOVState.fov,
+            m->pos[0] / CROSSMOD_SCALE,
+            m->pos[1] / CROSSMOD_SCALE,
+            -m->pos[2] / CROSSMOD_SCALE,
+            body_yaw,
             (int) gCurrLevelNum,
             (int) gCurrAreaIndex,
             (int) gCurrCourseNum,
@@ -692,36 +577,15 @@ static void send_state(const struct MarioState *m) {
             (int) m->health,
             (unsigned long) save_flags,
             (unsigned long) course_star_flags,
-            m->pos[0],
-            m->pos[1],
-            m->pos[2],
-            camera_x,
-            camera_y,
-            camera_z,
-            focus_x,
-            focus_y,
-            focus_z,
-            camera_mode,
-            s_last_hit_attack_serial,
-            s_last_hit_count,
-            (int) m->faceAngle[1],
-            (double) sFOVState.fov,
             (int) m->numCoins,
             (int) m->numLives,
             (int) gHudDisplay.flags,
-            (unsigned int) gHudDisplay.timer
+            (unsigned int) gHudDisplay.timer,
+            s_last_hit_attack_serial,
+            s_last_hit_count
     );
 
-    if (length > 0) {
-        sendto(
-                s_socket,
-                response,
-                (size_t) length,
-                0,
-                (const struct sockaddr *)&s_client_addr,
-                s_client_addr_len
-        );
-    }
+    crossmod_ws_send(response);
 }
 
 void crossmod_bridge_after_mario_update(struct MarioState *m) {

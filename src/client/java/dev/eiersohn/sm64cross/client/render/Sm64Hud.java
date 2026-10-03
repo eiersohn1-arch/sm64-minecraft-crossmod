@@ -61,6 +61,30 @@ public final class Sm64Hud {
                         true
                 );
             }
+
+            if ((state.hudFlags() & 0x0040) != 0) {
+                int frames = state.timerFrames();
+                int minutes = frames / 1800;
+                int seconds = (frames - minutes * 1800) / 30;
+                int tenths =
+                        (frames - minutes * 1800 - seconds * 30) / 3;
+
+                String timer = String.format(
+                        "TIME %d'%02d\"%d",
+                        minutes,
+                        seconds,
+                        tenths
+                );
+
+                graphics.drawString(
+                        minecraft.font,
+                        timer,
+                        x,
+                        y + 44,
+                        gold,
+                        true
+                );
+            }
         });
     }
 }

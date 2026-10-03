@@ -25,6 +25,7 @@ typedef int crossmod_socket_t;
 #include "game/camera.h"
 #include "game/game_init.h"
 #include "game/interaction.h"
+#include "game/level_update.h"
 #include "game/mario.h"
 #include "game/object_list_processor.h"
 #include "game/save_file.h"
@@ -681,7 +682,7 @@ static void send_state(const struct MarioState *m) {
     int length = snprintf(
             response,
             sizeof(response),
-            "S|%lu|%d|%d|%d|%d|%d|%d|%lu|%lu|native|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%d|%lu|%d|%d|%.3f|%d|%d\n",
+            "S|%lu|%d|%d|%d|%d|%d|%d|%lu|%lu|native|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%d|%lu|%d|%d|%.3f|%d|%d|%d|%u\n",
             s_player.sequence,
             (int) gCurrLevelNum,
             (int) gCurrAreaIndex,
@@ -706,7 +707,9 @@ static void send_state(const struct MarioState *m) {
             (int) m->faceAngle[1],
             (double) sFOVState.fov,
             (int) m->numCoins,
-            (int) m->numLives
+            (int) m->numLives,
+            (int) gHudDisplay.flags,
+            (unsigned int) gHudDisplay.timer
     );
 
     if (length > 0) {

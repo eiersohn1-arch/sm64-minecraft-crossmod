@@ -72,6 +72,22 @@ def patch_once(path: pathlib.Path, old: str, new: str) -> None:
     )
 
 
+def patch_all(path: pathlib.Path, old: str, new: str) -> None:
+    text = path.read_text(encoding="utf-8")
+
+    if old not in text:
+        if new in text:
+            return
+        raise RuntimeError(
+            f"Could not patch {path}: expected source marker not found."
+        )
+
+    path.write_text(
+        text.replace(old, new),
+        encoding="utf-8",
+    )
+
+
 def patch_sm64_port_toolchain() -> None:
     """Patch old bundled build tools for current MSYS2/GCC releases."""
     armips = SM64_PORT / "tools" / "armips.cpp"
@@ -99,7 +115,7 @@ def patch_sm64_port_toolchain() -> None:
         "GetFileAttributesEx(fileName.c_str(),GetFileExInfoStandard,&attr)",
         "GetFileAttributesExW(fileName.c_str(),GetFileExInfoStandard,&attr)",
     )
-    patch_once(
+    patch_all(
         armips,
         "GetFileAttributes(strFilename.c_str())",
         "GetFileAttributesW(strFilename.c_str())",

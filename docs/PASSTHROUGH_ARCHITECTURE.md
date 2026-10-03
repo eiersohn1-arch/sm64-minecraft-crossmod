@@ -1,86 +1,53 @@
-# Correct target: SM64 runtime + Minecraft player
+# SM64 runtime + Minecraft passthrough
 
-The block-recreation prototype is archived on the `legacy-block-prototype` branch.
+The old Minecraft-block recreation is archived on `legacy-block-prototype`.
 
-The main branch now targets a passthrough mashup.
+The current architecture follows Universal Modder's passthrough pattern: two real game runtimes execute at once and exchange state, events and rendered layers.
 
-## What remains Super Mario 64
+## SM64 is authoritative for the whole original game
 
-The SM64 PC port is the world/runtime authority for:
+SM64 owns:
 
-- Peach's Castle
-- every SM64 course and secret stage
-- original level geometry
-- original textures extracted locally from the user's ROM
-- skyboxes
-- paintings
-- doors
-- Power Stars
-- Red Coins
-- Goombas, Bob-ombs, Boos, Chain Chomp and other SM64 actors
-- bosses
-- moving platforms
-- warps
-- music and sound
-- level scripts and progression
+- Peach's Castle and every original course/secret stage
+- all original geometry, textures, actors, bosses and music
+- movement physics and collision
+- swimming, slopes, quicksand, cannons, poles and moving platforms
+- doors, paintings, warps and cutscenes
+- mission selection
+- all 120 Stars and course/secret progression
+- Bowser keys and Grand Star
+- save data, death and respawn
 
-The repository never stores the user's ROM or the extracted retail assets.
+Mario still exists internally because the original runtime expects him. His model is hidden while connected; his native state is the collision/interaction body represented visually by Steve.
 
-## What comes from Minecraft
+## Minecraft contributes the player presentation and item layer
 
-Minecraft is the player/inventory authority for:
+Minecraft supplies:
 
-- Steve/Alex or the user's skin
-- Minecraft movement
-- hotbar
-- inventory
-- armor
-- hunger and Minecraft health
-- held items
-- tools
-- swords
-- bows/projectiles
-- food
-- potions
-- TNT
-- player-placed Minecraft blocks
+- Steve/Alex/custom skin
+- Minecraft hotbar and inventory
+- held tools and weapons
+- HUD
+- Minecraft item-use/attack events
+- future Minecraft projectiles, blocks and effects
 
-## Hidden proxy
+Minecraft does **not** drive Mario by teleporting coordinates. It sends input. SM64 runs its normal controller/action/physics code, then sends the resulting authoritative player and camera pose back to Minecraft for rendering.
 
-SM64 still needs a Mario object because its cameras, enemies, Stars, doors and triggers expect Mario.
+## Universal Modder transport
 
-When the localhost bridge is connected:
+The exact reference repository is cloned with:
 
-1. the actual Mario model is hidden;
-2. Minecraft sends Steve's position and rotation to SM64 each tick;
-3. the invisible Mario proxy follows Steve;
-4. SM64 interactions run against that invisible proxy;
-5. SM64 sends level/progression/event state back to Minecraft.
+`git clone https://github.com/rehan-remade/universal-modder`
 
-This allows SM64's real gameplay runtime to keep working while the visible player is Steve.
+Reference example:
 
-## Rendering/compositing milestones
+`examples/minecraft-gta5-passthrough`
 
-### M1 — bridge
-Minecraft player state -> hidden SM64 Mario proxy.
+The crossmod uses the same split:
 
-### M2 — collision
-SM64 collision -> invisible Minecraft collision proxy. It exists only for Minecraft physics and is never the visual level.
+- localhost WebSocket on `127.0.0.1:25599` for camera/state/input/item events;
+- named shared-memory ring `Local\MCPassthroughFrame` for Minecraft colour/depth/overlay frames;
+- host-side depth compositor;
+- event adapters that turn Minecraft item actions into host-game effects.
 
-### M3 — composition
-SM64 color/depth is shared with Minecraft. Minecraft renders only Steve, Minecraft items/blocks and HUD over the SM64 frame with depth testing.
-
-### M4 — item effects
-Minecraft attack/use/projectile/explosion events are mapped into the SM64 runtime.
-
-Examples:
-
-- sword -> damage SM64 enemy hit by Steve's ray/weapon reach
-- bow -> Minecraft projectile rendered in the composite and hit-tested against SM64
-- TNT -> Minecraft explosion plus mapped SM64 enemy/object damage
-- food/potions -> normal Minecraft player effects
-- blocks -> player-created Minecraft geometry rendered on top of SM64 and added to Minecraft collision
-
-## Important
-
-The old colored/stone/grass conversion is not the target visual renderer anymore. Collision conversion may still be reused internally as an invisible physics proxy.
+The setup copies Universal Modder's own `ws.h` and `ws.cpp` directly from the clone into the SM64 build.

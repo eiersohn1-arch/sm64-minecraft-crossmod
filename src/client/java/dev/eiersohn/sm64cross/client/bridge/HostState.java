@@ -24,6 +24,10 @@ public final class HostState {
         return latest.connected();
     }
 
+    public static void disconnect() {
+        latest = State.disconnected();
+    }
+
     public static void update(JsonObject message) {
         JsonArray camera = message.getAsJsonArray("p");
         JsonArray rotation = message.getAsJsonArray("r");

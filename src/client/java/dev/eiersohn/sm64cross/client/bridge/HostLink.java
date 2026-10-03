@@ -76,6 +76,7 @@ public final class HostLink extends WebSocketServer {
             String reason,
             boolean remote
     ) {
+        HostState.disconnect();
         Sm64CrossMod.LOGGER.info(
                 "SM64 host disconnected ({} {})",
                 code,

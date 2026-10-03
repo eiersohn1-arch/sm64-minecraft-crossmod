@@ -1,23 +1,31 @@
 # Universal Modder workflow
 
-Universal Modder is an analysis/orchestration aid for this project.
+This project now uses Universal Modder as the concrete passthrough reference, not just as an analysis aid.
 
-Use the `mashup-mods`, Minecraft, retro/decomp and game-automation workflows.
+Clone used by setup:
 
-## Agent prompt
-
-```text
-Build the SM64 x Minecraft crossmod in this repository.
-
-Hard requirements:
-- Minecraft Java 1.21.1 + Fabric.
-- Keep the player as a native Minecraft player with normal skin, inventory,
-  crafting, blocks, tools, weapons and item interactions.
-- Recreate SM64's castle/course/star progression as Minecraft gameplay.
-- Do not embed an emulator window and do not replace the player with Mario.
-- Use the user's own clean SM64 US ROM/decomp output only as local source data.
-- Never commit or publish ROM bytes or extracted copyrighted assets.
-- Start with Bob-omb Battlefield as the first full vertical slice.
-- Prefer data-driven converters and reproducible scripts.
-- Keep builds testable after every milestone.
 ```
+git clone https://github.com/rehan-remade/universal-modder
+```
+
+Primary reference:
+
+`examples/minecraft-gta5-passthrough`
+
+Relevant skill:
+
+`skills/mashup-mods/SKILL.md`
+
+## Project mapping
+
+Universal Modder example | SM64 × Minecraft
+---|---
+Minecraft Fabric guest | Minecraft 1.21.1 Fabric guest
+GTA host plugin | patched native SM64-port host
+localhost WebSocket | localhost WebSocket on the same 25599 port
+`Local\MCPassthroughFrame` | same named shared-memory contract
+ReShade host compositor | native SM64 D3D11 compositor
+GTA camera/player state | SM64 camera/player/progression state
+Minecraft explosion/projectile events | Minecraft weapon/TNT -> SM64 actor events
+
+SM64 remains the source of truth for the complete original game's 120-Star progression. Minecraft remains the visible player/item/HUD layer.

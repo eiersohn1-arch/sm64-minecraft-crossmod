@@ -1,31 +1,50 @@
 # D3D11 compositor
 
-The Windows SM64 build uses its native Direct3D 11 renderer as the final visible window.
+The Windows SM64 build uses its native Direct3D 11 renderer as the host compositor.
 
-Minecraft exports three layers every frame:
+This follows the same passthrough pattern as
+`universal-modder/examples/minecraft-gta5-passthrough`:
 
-1. transparent Minecraft 3D colour (Steve, held items, future placed blocks/projectiles)
-2. Minecraft depth
-3. screen-space overlay (hotbar, hearts/hunger, menus)
+1. Minecraft renders a guest frame.
+2. Minecraft publishes world colour, world depth and a separate hand/HUD layer.
+3. The host reads the latest completed slot from named shared memory.
+4. The host compares guest depth with its own depth.
+5. Minecraft content is blended only where it belongs in front of the host scene.
+6. The screen-space Minecraft overlay is drawn last.
 
-The patched SM64 D3D11 backend exposes the native SM64 depth buffer as a shader resource. At the end of every SM64 frame, a fullscreen compositor compares Minecraft depth with SM64 depth.
+## Shared-memory contract
 
-Result:
+The transport is the same MCPT layout used by Universal Modder's worked example:
 
-- SM64 remains the base image.
-- Steve and Minecraft 3D objects appear only where their depth is in front of the SM64 surface.
-- Steve can therefore disappear behind castle walls, terrain and props.
-- Minecraft sky/background never replaces SM64 because depth-clear pixels are discarded.
-- Minecraft hotbar/HUD is always blended on top.
-- Different Minecraft/SM64 window aspect ratios are corrected from the shared vertical FOV.
+- mapping: `Local\MCPassthroughFrame`
+- magic: `MCPT`
+- three rotating slots
+- odd sequence while a slot is being written
+- even sequence when complete
+- publish counter + latest slot
+- world RGBA8
+- world depth float32
+- overlay RGBA8
+- near/far/FOV and camera pose stored with the rendered frame
 
-The current implementation uses the temp-file mapping `sm64cross_frame.bin` so Java 21 and the MinGW SM64 host can exchange frames without JNI/JNA or third-party runtime DLLs.
+The Minecraft 1.21.1 renderer differs from Universal Modder's current Minecraft version, so this project uses the 1.21.1 OpenGL readback API while preserving the same transport contract.
 
-This is the first in-host compositor milestone. It is intentionally kept inside the original SM64 renderer so the final game does not require ReShade.
+## SM64 host integration
 
+SM64's depth texture is exposed as a D3D11 shader resource. The compositor therefore knows which surface is in front instead of doing a flat picture overlay.
 
-## Single visible play surface
+Expected result:
 
-Once Minecraft has published its native Windows handle and content-area rectangle, the SM64 window switches into a borderless click-through overlay positioned exactly above the Minecraft client area.
+- the genuine SM64 frame is the base scene;
+- Steve and Minecraft 3D content can appear inside it;
+- an SM64 wall can occlude Steve;
+- Minecraft sky/vanilla terrain do not replace the SM64 scene;
+- Minecraft hand, hotbar, inventory and HUD remain screen-space overlays.
 
-Minecraft deliberately remains the focused window underneath. This means normal Minecraft keyboard/mouse input, hotbar selection and inventory screens keep working, while the player sees the composited SM64 output above it. The overlay uses `WS_EX_NOACTIVATE` and `WS_EX_TRANSPARENT`; when Minecraft loses focus the SM64 overlay hides, so it does not cover other desktop applications.
+Because SM64-port's renderer source is available, this compositor lives directly in its D3D11 backend. This is equivalent to the ReShade add-on role in the GTA example, without requiring ReShade.
+
+## Current single-window test
+
+For the present Minecraft-1.21.1 test harness, the SM64 host window becomes a borderless click-through overlay aligned to Minecraft's client area after the first shared frame is published. Minecraft stays focused for normal keyboard, mouse, inventory and hotbar input.
+
+A later host-input route can move focus fully to the host, like the GTA example, without changing the WebSocket or shared-memory protocol.

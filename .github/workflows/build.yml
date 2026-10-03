@@ -31,6 +31,8 @@ jobs:
           grep -q "gLakituState.curPos" sm64-host/crossmod_bridge.c
           grep -q "attackSerial" src/client/java/dev/eiersohn/sm64cross/client/bridge/PassthroughBridgeClient.java
           grep -q "sm64-port/sm64-port.git" tools/prepare_passthrough.py
+          grep -q "patch_sm64_port_toolchain" tools/prepare_passthrough.py
+          grep -q "#include <cstdint>" tools/prepare_passthrough.py
 
       - name: Syntax-check SM64 bridge against upstream headers
         run: |

@@ -72,6 +72,27 @@ def patch_once(path: pathlib.Path, old: str, new: str) -> None:
     )
 
 
+def patch_sm64_port_toolchain() -> None:
+    """Patch old bundled build tools for current MSYS2/GCC releases."""
+    armips = SM64_PORT / "tools" / "armips.cpp"
+
+    if not armips.is_file():
+        raise RuntimeError(f"Bundled armips source missing: {armips}")
+
+    # The old sm64-port armips amalgamation relies on int64_t arriving through
+    # transitive headers. Modern MinGW/GCC can encounter SymbolTable.h before
+    # int64_t is declared, recover it as the wrong parameter type, and later
+    # reject SymbolTable::findSection(int64_t). Include <cstdint> explicitly at
+    # the start so the declaration and definition always use the same type.
+    patch_once(
+        armips,
+        "#include <cstdio>\n",
+        "#include <cstdint>\n#include <cstdio>\n",
+    )
+
+    print("Patched bundled armips for modern MSYS2/GCC.")
+
+
 def install_bridge() -> None:
     shutil.copy2(
         ROOT / "sm64-host" / "crossmod_bridge.c",
@@ -216,6 +237,7 @@ def main() -> int:
         )
 
         shutil.copy2(ROM, SM64_PORT / "baserom.us.z64")
+        patch_sm64_port_toolchain()
         install_bridge()
 
         print()

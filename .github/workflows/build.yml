@@ -21,6 +21,26 @@ jobs:
       - name: Validate Python tools
         run: python -m py_compile tools/*.py
 
+      - name: Validate Bob-omb importer against SM64 decomp
+        run: |
+          mkdir -p vendor
+          git clone --depth 1 https://github.com/n64decomp/sm64.git vendor/sm64-decomp
+          python tools/build_course_plan.py bob_omb_battlefield --output /tmp/bob_omb_battlefield.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path("/tmp/bob_omb_battlefield.json").read_text())
+          assert data["sourceStats"]["redCoins"] == 8, data["sourceStats"]
+          indexes = [item["index"] for item in data["objectives"]]
+          assert indexes == [1, 2, 3, 4, 5, 6], indexes
+          assert len(data["blocks"]) > 1000, len(data["blocks"])
+          print("Importer validation OK")
+          print("Blocks:", len(data["blocks"]))
+          print("Objectives:", indexes)
+          print("Red coins:", data["sourceStats"]["redCoins"])
+          PY
+
       - name: Validate Gradle wrapper
         uses: gradle/actions/wrapper-validation@v4
 

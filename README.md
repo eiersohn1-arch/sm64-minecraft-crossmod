@@ -2,91 +2,45 @@
 
 ## Target
 
-This project is **not** a Minecraft-block remake of Super Mario 64.
+This project is not a Minecraft-block remake of Super Mario 64.
 
-The target is:
+The real Super Mario 64 world/runtime stays visually Super Mario 64. Mario is replaced by the Minecraft player, while the Minecraft hotbar, inventory and items remain usable.
 
-> The real Super Mario 64 world/runtime stays visually Super Mario 64.  
-> Mario is replaced by the Minecraft player, while the Minecraft hotbar,
-> inventory and items remain usable.
+The visible world is the native SM64 renderer: original 3D castle, courses, textures, skyboxes, enemies, bosses, Stars, doors, paintings, props and moving geometry extracted locally from the user's own ROM.
 
-That means the visible game should contain the original SM64 castle, courses, textures, skyboxes, enemies, bosses, Stars, doors, paintings and other SM64 content extracted locally from the user's own ROM.
+Minecraft supplies Steve/Alex/your skin, the hotbar, inventory, held items and cross-game mechanics.
 
-The Minecraft side supplies Steve/Alex/your skin, hotbar, inventory and Minecraft items.
-
-The previous block-based prototype has been preserved on the branch:
-
-```text
-legacy-block-prototype
-```
-
-Do not use that branch for the final target.
+The previous block-based prototype is preserved on the legacy-block-prototype branch.
 
 ## Current main-branch milestone
 
-The project has been pivoted to a **passthrough mashup**:
+Minecraft Java/Fabric sends Steve state through a localhost state/combat bridge to the Super Mario 64 PC runtime. SM64 remains the renderer and world/actor authority; an invisible Mario proxy follows Steve.
 
-```text
-Minecraft Java / Fabric
-  Steve + hotbar + inventory + items
-             |
-             | localhost bridge
-             v
-SM64 PC runtime
-  original SM64 renderer + world + actors
-  hidden Mario proxy follows Steve
-```
+Implemented bridge pieces:
 
-The first bridge code is now present on both sides:
+- Minecraft player position and rotation are mapped to an invisible Mario proxy.
+- The real Mario model is hidden while the bridge is active.
+- SM64 continues to render the entire Mario world.
+- SM64's own HUD is hidden so Minecraft can own the final HUD.
+- The host sends SM64 camera position, camera focus and camera mode back to Minecraft for the compositor.
+- Minecraft melee swings are event-based instead of damaging every tick.
+- Swords, axes, tools, mace, trident and empty-hand attacks have bridge combat profiles.
+- A Minecraft melee swing selects an attackable SM64 actor in front of Steve and injects native SM64 attacked/interacted flags.
+- Stars, normal doors and scenery are excluded from melee targeting.
+- Bows/crossbows are reserved for the projectile bridge instead of being faked as melee.
 
-- Fabric transmits Minecraft player position, camera rotation, held item, attack/use state, health and hunger.
-- The patched SM64 host listens on localhost.
-- When connected, SM64 hides Mario.
-- The hidden Mario proxy follows Minecraft's player position.
-- SM64's own world renderer remains responsible for the Mario world.
-- SM64 HUD is hidden while the Minecraft bridge is active.
+Enemy AI/reactions stay in SM64. The bridge tells SM64 that Steve hit an actor; existing SM64 behavior decides how that actor reacts.
 
-The next rendering milestone is depth-aware frame composition so Minecraft renders only Steve, Minecraft blocks/items and the native Minecraft HUD over the SM64 frame.
+The remaining major visual milestone is depth-aware composition: the SM64 color/depth frame becomes the base image, and Minecraft draws Steve, held items, Minecraft blocks/projectiles and the Minecraft HUD into the same view.
 
-See `docs/PASSTHROUGH_ARCHITECTURE.md`.
+See docs/PASSTHROUGH_ARCHITECTURE.md and docs/RENDER_AND_COMBAT.md.
 
 ## Requirements
 
-For the Fabric side:
+Fabric side: JDK 21, Git and Python 3.
 
-- JDK 21
-- Git
-- Python 3
+SM64 host on Windows: MSYS2 MinGW64, git, make, python3, mingw-w64-x86_64-gcc, SDL2/GLEW development packages.
 
-For the SM64 host on Windows:
+Place your own clean Super Mario 64 USA ROM at rom/baserom.us.z64. Expected SHA-1: 9bef1128717f958171a4afac3ed78ee2bb4e86ce.
 
-- MSYS2 MinGW64
-- `git`
-- `make`
-- `python3`
-- `mingw-w64-x86_64-gcc`
-- SDL2/GLEW development packages
-
-And your own clean Super Mario 64 USA ROM:
-
-```text
-rom/baserom.us.z64
-```
-
-Expected SHA-1:
-
-```text
-9bef1128717f958171a4afac3ed78ee2bb4e86ce
-```
-
-## Prepare the new passthrough project
-
-Run:
-
-```bat
-setup-windows.bat
-```
-
-The script verifies the ROM, prepares the patched SM64 PC host, downloads Universal Modder locally and builds the Fabric mod.
-
-The ROM, SM64 checkout, Universal Modder checkout and extracted retail assets are gitignored.
+Run setup-windows.bat to prepare the patched host and build the Fabric mod. The ROM, SM64 checkout, Universal Modder checkout and extracted retail assets are gitignored.

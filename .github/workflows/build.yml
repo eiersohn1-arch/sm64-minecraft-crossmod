@@ -27,6 +27,9 @@ jobs:
           test -f sm64-host/crossmod_bridge.h
           grep -q "GRAPH_RENDER_INVISIBLE" sm64-host/crossmod_bridge.c
           grep -q "CROSSMOD_PORT 6464" sm64-host/crossmod_bridge.c
+          grep -q "crossmod_process_combat" sm64-host/crossmod_bridge.c
+          grep -q "gLakituState.curPos" sm64-host/crossmod_bridge.c
+          grep -q "attackSerial" src/client/java/dev/eiersohn/sm64cross/client/bridge/PassthroughBridgeClient.java
           grep -q "sm64-port/sm64-port.git" tools/prepare_passthrough.py
 
       - name: Validate Gradle wrapper

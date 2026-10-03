@@ -1,33 +1,54 @@
 # SM64 × Minecraft Crossmod
 
-A Minecraft Java/Fabric crossmod that rebuilds Super Mario 64 progression around the normal Minecraft player.
+Minecraft Java 1.21.1 + Fabric with Super Mario 64's castle/course progression rebuilt around the normal Minecraft player.
 
-## Target
+## v0.2.0 playable slice
 
-- Minecraft Java 1.21.1 + Fabric
-- You remain your normal Minecraft character/skin
-- Vanilla inventory, tools, weapons, blocks, crafting and building stay enabled
-- SM64 castle/course/star progression is added as Minecraft gameplay
-- Local user-owned SM64 data is converted on the user's machine
-- ROMs and extracted copyrighted assets are never committed
+This version boots into an automatically generated SM64 hub and contains a complete playable Bob-omb Battlefield course loop.
 
-## Current playable prototype
+### Peach's Castle hub
 
-The project already contains:
+On the first world join the mod builds the hub automatically from SM64 collision data:
 
-- persistent 0–120 Power Star progress
-- unique mission IDs so the same mission star does not count twice
-- a real SM64 collision parser
-- Bob-omb Battlefield collision → Minecraft block voxelization
-- original Bob-omb Battlefield mission/object coordinate parsing
-- the original 8 red-coin positions
-- a playable 8 Red Coins star
-- the original static Star 6 position
-- incremental course construction so Minecraft is not frozen by one huge placement tick
+- Castle Grounds
+- main lobby / first floor
+- upper castle
+- basement
+- courtyard
+- connected hub warp points
+- Bob-omb Battlefield painting portal
+- 8-star door
+- 30-star door
+- 50-star door
+- 70-star door
+- persistent build sentinels so the huge hub is not rebuilt every launch
 
-The other missions, enemies, visuals, castle, painting portals and remaining courses are still being implemented.
+The generated castle currently uses Minecraft materials mapped from the SM64 collision surfaces. Exact Nintendo textures/models are not distributed in the repository.
 
-## Local requirements
+### Bob-omb Battlefield
+
+The course is generated from the original SM64 collision source and contains seven collectible mission stars:
+
+1. Big Bob-omb on the Summit
+   - King Bob-omb is represented by a named Minecraft Ravager boss.
+2. Footrace with Koopa the Quick
+   - touch the blue start marker and reach the green summit marker within 90 seconds.
+3. Shoot to the Island in the Sky
+   - break the mission box at the original star-box coordinate.
+4. Find the 8 Red Coins
+   - all eight original red-coin coordinates are used.
+5. Mario Wings to the Sky
+   - pass through all five original hidden-star trigger positions.
+6. Behind Chain Chomp's Gate
+   - break the stake at the original Chain Chomp location to open the iron-bar gate.
+7. 100 Coins
+   - collect 100 course coins; red coins count as two.
+
+All mission stars have persistent IDs, so a completed star cannot be counted twice.
+
+You remain a normal Minecraft player with your skin, inventory, armor, tools, weapons, blocks, crafting and normal Minecraft interactions.
+
+## Requirements
 
 - Git
 - Python 3
@@ -35,7 +56,7 @@ The other missions, enemies, visuals, castle, painting portals and remaining cou
 - Minecraft Java Edition
 - your own clean Super Mario 64 (USA) .z64 ROM
 
-Put the ROM here:
+Put your ROM at:
 
 ```text
 rom/baserom.us.z64
@@ -47,55 +68,69 @@ Expected SHA-1:
 9bef1128717f958171a4afac3ed78ee2bb4e86ce
 ```
 
-## One-command setup on Windows
+## Windows setup
 
-Open the project folder and run:
+Run:
 
 ```bat
 setup-windows.bat
 ```
 
-It will:
+The setup performs:
 
-1. verify your local ROM
-2. clone the public SM64 decomp locally into gitignored `vendor/`
-3. clone Universal Modder locally into gitignored `vendor/`
-4. generate the Bob-omb Battlefield Minecraft block plan
-5. build the Fabric mod
+1. ROM verification
+2. local SM64 decomp checkout
+3. local Universal Modder checkout
+4. Peach's Castle generation
+5. Bob-omb Battlefield generation
+6. Fabric build
 
-Then launch the dev client:
+Local ROMs, source checkouts and generated SM64 geometry remain gitignored.
+
+## Launch
+
+After setup:
 
 ```bat
 gradlew.bat runClient
 ```
 
-Create a cheats-enabled Creative world. Stand in a large empty area and run:
+Create/open a world. On the first join, Peach's Castle is generated automatically and you are moved to the SM64 starting area.
 
-```text
-/sm64 build bob_omb_battlefield
-```
+The castle contains a blue Bob-omb painting. Walk into it to enter Bob-omb Battlefield.
 
-Useful commands:
+A purple pad near the Bob-omb start returns you to the castle.
+
+## Useful commands
 
 ```text
 /sm64
 /sm64 stars
+/sm64 castle
+/sm64 bob
 /sm64 buildstatus
 /sm64 level info bob_omb_battlefield
 ```
 
-## What to expect in the current prototype
+`/sm64 castle` is a fallback teleport to the castle lobby.
 
-The course terrain is generated from the real SM64 collision mesh, converted to Minecraft blocks. It is intentionally a first-pass block representation, not the final textured visual conversion.
+`/sm64 bob` is a fallback teleport directly into Bob-omb Battlefield.
 
-Red concrete blocks mark the eight original red-coin coordinates. Walk through all eight and a gold-block Power Star marker appears at the original SM64 red-coin-star position. Walk into the star marker to collect it.
+## Verified importer numbers
 
-A second gold star marker corresponds to the original static Star 6 position.
+The automated GitHub validation currently reads from upstream SM64 decomp data and verifies approximately:
 
-## Universal Modder
+- Bob-omb Battlefield: 570 collision vertices
+- Bob-omb Battlefield: 1060 collision triangles
+- Bob-omb Battlefield: 49,982 generated terrain blocks
+- Bob-omb Battlefield: 7 mission objectives
+- Bob-omb Battlefield: 8 original red coins
+- Bob-omb Battlefield: 94 normal coin markers plus red-coin value, enough for the 100-coin star
+- Peach's Castle hub: 5 playable areas
+- Peach's Castle hub: about 108,835 generated blocks
 
-Universal Modder is used as an analysis/orchestration aid for mashup design, Minecraft modding and retro-decomp workflows. It is not treated as a one-click converter.
+## Important scope
 
-## Safety of your game files
+The hub/course geometry and mission coordinates come from the user's local/public decomp workflow. The repository contains original crossmod code and converters, not Nintendo ROMs or extracted retail assets.
 
-`rom/`, `vendor/`, `generated/`, `extracted/` and the Minecraft `run/` development directory are gitignored. The repository publishes crossmod code and converters, not your ROM or locally extracted Nintendo assets.
+The current visuals are Minecraft-material recreations of the SM64 collision geometry. Exact visual-mesh conversion, original-looking textures, more faithful enemy AI, every remaining SM64 course, secret stages and Bowser stages are later milestones.

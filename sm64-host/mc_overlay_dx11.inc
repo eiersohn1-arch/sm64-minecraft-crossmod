@@ -346,6 +346,19 @@ float4 PSMain(VSOutput input) : SV_TARGET {
     float2 overlay_uv = mc_uv_from_ndc(screen_ndc);
     float4 overlay = McOverlay.Sample(LinearSampler, overlay_uv);
 
+    /*
+     * Defensive fallback for older/driver-specific Minecraft render paths:
+     * an RGBA clear can occasionally arrive as opaque black if alpha writes
+     * were masked. Never let that clear colour cover the native SM64 frame.
+     * Actual GUI pixels (including dark inventory panels) contain non-zero
+     * colour/edge data and remain composited normally.
+     */
+    if (overlay.a > 0.999
+            && max(max(abs(overlay.r), abs(overlay.g)), abs(overlay.b))
+                < (0.5 / 255.0)) {
+        overlay = float4(0.0, 0.0, 0.0, 0.0);
+    }
+
     // Direct fallback for the first frame or if a pose is not available.
     float mc_ndc_x =
         screen_ndc.x * HostAspect / max(McAspect, 1.0e-6);

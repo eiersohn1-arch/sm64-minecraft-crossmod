@@ -161,8 +161,40 @@ public final class Sm64FrameExporter {
 
         // Match the universal-modder split: world first, then transparent hand/HUD.
         target.bindWrite(false);
-        GL11.glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-        GL11.glClear(GL11.GL_COLOR_BUFFER_BIT);
+
+        /*
+         * glClear obeys the current colour-write mask and scissor state.
+         * Minecraft can leave either state changed by previous render passes;
+         * if alpha is masked off, clearing to transparent black leaves the old
+         * alpha=1 behind. The host then sees an opaque black fullscreen overlay.
+         *
+         * Force a true full-target RGBA clear before hand/HUD rendering.
+         */
+        boolean scissorWasEnabled =
+                GL11.glIsEnabled(GL11.GL_SCISSOR_TEST);
+
+        ByteBuffer colourMask = MemoryUtil.memAlloc(4);
+        try {
+            GL11.glGetBooleanv(GL11.GL_COLOR_WRITEMASK, colourMask);
+
+            GL11.glDisable(GL11.GL_SCISSOR_TEST);
+            GL11.glColorMask(true, true, true, true);
+            GL11.glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+            GL11.glClear(GL11.GL_COLOR_BUFFER_BIT);
+
+            GL11.glColorMask(
+                    colourMask.get(0) != 0,
+                    colourMask.get(1) != 0,
+                    colourMask.get(2) != 0,
+                    colourMask.get(3) != 0
+            );
+
+            if (scissorWasEnabled) {
+                GL11.glEnable(GL11.GL_SCISSOR_TEST);
+            }
+        } finally {
+            MemoryUtil.memFree(colourMask);
+        }
     }
 
     public static void captureOverlay() {

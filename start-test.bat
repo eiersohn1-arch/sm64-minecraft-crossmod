@@ -26,8 +26,8 @@ if not exist "gradlew.bat" (
   exit /b 1
 )
 
-rem Never let the host consume a stale frame/HWND from an older test session.
-del /q "%TEMP%\sm64cross_frame.bin" >nul 2>&1
+rem Frame transport now follows universal-modder:
+rem localhost WebSocket + named shared memory Local\MCPassthroughFrame.
 
 echo [1/2] Starte den nativen Super-Mario-64-Host...
 start "SM64 Crossmod Host" "%SM64_EXE%"
@@ -35,7 +35,7 @@ start "SM64 Crossmod Host" "%SM64_EXE%"
 echo.
 echo [2/2] Starte Minecraft 1.21.1 mit Fabric...
 echo.
-echo SO FUNKTIONIERT DER NEUE COMPOSITOR:
+echo UNIVERSAL-MODDER PASSTHROUGH:
 echo   1. Oeffne in Minecraft eine Welt.
 echo   2. Sobald die Bridge verbunden ist, legt sich das SM64-Bild
 echo      automatisch ueber die Minecraft-Spielflaeche.

@@ -19,7 +19,7 @@ jobs:
           java-version: "21"
 
       - name: Validate passthrough Python tooling
-        run: python -m py_compile tools/prepare_passthrough.py
+        run: python -m py_compile tools/prepare_passthrough.py tools/verify_whole_game.py
 
       - name: Validate passthrough bridge sources
         run: |
@@ -46,6 +46,10 @@ jobs:
           grep -q "crossmod_bridge_apply_controller(gPlayer1Controller)" vendor/sm64-port/src/game/game_init.c
           grep -q "crossmod_bridge_after_mario_update(gMarioState)" vendor/sm64-port/src/game/mario.c
           grep -q "crossmod_bridge_poll" vendor/sm64-port/src/pc/pc_main.c
+
+      - name: Whole-game integrity
+        run: |
+          python tools/verify_whole_game.py --sm64-port vendor/sm64-port
 
       - name: Syntax-check SM64 bridge against upstream headers
         run: |

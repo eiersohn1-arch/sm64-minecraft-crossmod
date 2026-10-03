@@ -44,3 +44,18 @@ SM64 host on Windows: MSYS2 MinGW64, git, make, python3, mingw-w64-x86_64-gcc, S
 Place your own clean Super Mario 64 USA ROM at rom/baserom.us.z64. Expected SHA-1: 9bef1128717f958171a4afac3ed78ee2bb4e86ce.
 
 Run setup-windows.bat to prepare the patched host and build the Fabric mod. The ROM, SM64 checkout, Universal Modder checkout and extracted retail assets are gitignored.
+
+
+## Test starten
+
+Nach einem erfolgreichen `setup-windows.bat` kannst du unter Windows einfach
+
+```bat
+start-test.bat
+```
+
+starten. Das Skript öffnet zuerst den gepatchten SM64-Host und danach eine Minecraft-1.21.1-Fabric-Testinstanz mit dem Crossmod.
+
+Öffne anschließend in Minecraft eine Welt. Sobald ein Minecraft-Spieler existiert, beginnt die localhost-Bridge, Steve mit dem unsichtbaren SM64-Mario-Proxy zu synchronisieren.
+
+Hinweis: Der gemeinsame depth-aware 3D-Compositor ist noch nicht fertig. Im aktuellen Test laufen SM64 und Minecraft deshalb noch in getrennten Fenstern; die Bridge für Position, Kamera und Nahkampfangriffe ist bereits aktiv.

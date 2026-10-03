@@ -174,7 +174,7 @@ public final class PassthroughBridgeClient {
 
     private static void parseHostState(String message) {
         String[] fields = message.split("\\|");
-        if (fields.length < 23) {
+        if (fields.length < 25) {
             return;
         }
 
@@ -202,7 +202,9 @@ public final class PassthroughBridgeClient {
                     Double.parseDouble(fields[19]),
                     Integer.parseInt(fields[20]),
                     Long.parseLong(fields[21]),
-                    Integer.parseInt(fields[22])
+                    Integer.parseInt(fields[22]),
+                    Integer.parseInt(fields[23]),
+                    Double.parseDouble(fields[24])
             );
 
             if (!hostSeen) {
@@ -289,7 +291,9 @@ public final class PassthroughBridgeClient {
             double focusZ,
             int cameraMode,
             long lastHitAttackSerial,
-            int hitCount
+            int hitCount,
+            int faceAngle,
+            double cameraFov
     ) {
         static HostState disconnected() {
             return new HostState(
@@ -298,7 +302,7 @@ public final class PassthroughBridgeClient {
                     0.0, 0.0, 0.0,
                     0.0, 0.0, 0.0,
                     0.0, 0.0, 0.0,
-                    0, -1, 0
+                    0, -1, 0, 0, 45.0
             );
         }
     }

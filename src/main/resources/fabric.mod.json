@@ -14,6 +14,9 @@
     "main": ["dev.eiersohn.sm64cross.Sm64CrossMod"],
     "client": ["dev.eiersohn.sm64cross.client.Sm64CrossClient"]
   },
+  "mixins": [
+    "sm64cross.client.mixins.json"
+  ],
   "depends": {
     "fabricloader": ">=0.19.5",
     "minecraft": "~1.21.1",

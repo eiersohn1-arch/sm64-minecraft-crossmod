@@ -33,6 +33,8 @@ typedef int crossmod_socket_t;
 #include "object_constants.h"
 #include "object_fields.h"
 
+extern struct CameraFOVStatus sFOVState;
+
 #define CROSSMOD_PORT 6464
 #define CROSSMOD_SCALE 100.0f
 #define CROSSMOD_MIN_MELEE_REACH 220.0f
@@ -507,7 +509,7 @@ static void send_state(const struct MarioState *m) {
     int length = snprintf(
             response,
             sizeof(response),
-            "S|%lu|%d|%d|%d|%d|%d|%d|%lu|%lu|native|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%d|%lu|%d\n",
+            "S|%lu|%d|%d|%d|%d|%d|%d|%lu|%lu|native|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%d|%lu|%d|%d|%.3f\n",
             s_player.sequence,
             (int) gCurrLevelNum,
             (int) gCurrAreaIndex,
@@ -528,7 +530,9 @@ static void send_state(const struct MarioState *m) {
             focus_z,
             camera_mode,
             s_last_hit_attack_serial,
-            s_last_hit_count
+            s_last_hit_count,
+            (int) m->faceAngle[1],
+            (double) sFOVState.fov
     );
 
     if (length > 0) {

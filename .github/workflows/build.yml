@@ -35,6 +35,7 @@ jobs:
           grep -q "#include <cstdint>" tools/prepare_passthrough.py
           grep -q "GetFileAttributesExW" tools/prepare_passthrough.py
           grep -q "GetFileAttributesW" tools/prepare_passthrough.py
+          grep -q "make HOST_ENV=MinGW VERSION=us" tools/prepare_passthrough.py
 
       - name: Syntax-check SM64 bridge against upstream headers
         run: |

@@ -47,8 +47,8 @@ if exist C:\msys64\usr\bin\bash.exe (
   python tools\prepare_passthrough.py --build-sm64
   if errorlevel 1 (
     echo.
-    echo Fabric side is built, but the SM64 host still needs its MSYS2 packages.
-    echo Open "MSYS2 MinGW 64-bit" and run:
+    echo Fabric side is built, but the SM64 host build failed.
+    echo If the error above says a package is missing, open "MSYS2 MinGW 64-bit" and run:
     echo.
     echo pacman -S --needed git make python3 mingw-w64-x86_64-gcc mingw-w64-x86_64-SDL2 mingw-w64-x86_64-glew
     echo.

@@ -235,7 +235,7 @@ def build_sm64_windows() -> None:
     command = (
         "export PATH=/mingw64/bin:/usr/bin:$PATH; "
         f'cd "{port_path}"; '
-        "make VERSION=us -j4"
+        "make HOST_ENV=MinGW VERSION=us -j4"
     )
 
     run([str(bash), "-lc", command])

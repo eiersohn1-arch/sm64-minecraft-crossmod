@@ -61,21 +61,28 @@ public final class PassthroughBridgeClient {
                 .getKey(held.getItem())
                 .toString();
 
-        boolean attackDown = client.screen == null
-                && client.options.keyAttack.isDown();
-        boolean useDown = client.screen == null
-                && client.options.keyUse.isDown();
+        boolean gameplayInput = client.screen == null;
+        boolean attackDown = gameplayInput && client.options.keyAttack.isDown();
+        boolean useDown = gameplayInput && client.options.keyUse.isDown();
 
         if (attackDown && !previousAttackDown) {
             attackSerial++;
         }
         previousAttackDown = attackDown;
 
+        int moveForward = gameplayInput && client.options.keyUp.isDown() ? 1 : 0;
+        int moveBack = gameplayInput && client.options.keyDown.isDown() ? 1 : 0;
+        int moveLeft = gameplayInput && client.options.keyLeft.isDown() ? 1 : 0;
+        int moveRight = gameplayInput && client.options.keyRight.isDown() ? 1 : 0;
+        int jump = gameplayInput && client.options.keyJump.isDown() ? 1 : 0;
+        int sneak = gameplayInput && client.player.isShiftKeyDown() ? 1 : 0;
+        int sprint = gameplayInput && client.player.isSprinting() ? 1 : 0;
+
         CombatProfile combat = CombatProfile.forItem(itemId);
 
         String payload = String.format(
                 Locale.ROOT,
-                "P|%d|%.6f|%.6f|%.6f|%.4f|%.4f|%s|%d|%s|%.2f|%d|%d|%d|%d|%.3f|%d\n",
+                "P|%d|%.6f|%.6f|%.6f|%.4f|%.4f|%s|%d|%s|%.2f|%d|%d|%d|%d|%d|%d|%d|%d|%d|%.3f|%d\n",
                 sequence++,
                 client.player.getX(),
                 client.player.getY(),
@@ -88,8 +95,13 @@ public final class PassthroughBridgeClient {
                 combat.reachBlocks,
                 combat.power,
                 useDown ? 1 : 0,
-                client.player.isShiftKeyDown() ? 1 : 0,
-                client.player.isSprinting() ? 1 : 0,
+                moveForward,
+                moveBack,
+                moveLeft,
+                moveRight,
+                jump,
+                sneak,
+                sprint,
                 client.player.getHealth(),
                 client.player.getFoodData().getFoodLevel()
         );
@@ -113,7 +125,7 @@ public final class PassthroughBridgeClient {
         try {
             socket.send(packet);
         } catch (IOException ignored) {
-            // UDP is intentionally best-effort. The SM64 host may not be running yet.
+            // The SM64 host may not be running yet.
         }
     }
 
@@ -137,11 +149,9 @@ public final class PassthroughBridgeClient {
                     StandardCharsets.UTF_8
             ).trim();
 
-            if (!message.startsWith("S|")) {
-                continue;
+            if (message.startsWith("S|")) {
+                parseHostState(message);
             }
-
-            parseHostState(message);
         }
     }
 
@@ -152,7 +162,7 @@ public final class PassthroughBridgeClient {
         }
 
         try {
-            HostState next = new HostState(
+            hostState = new HostState(
                     true,
                     Long.parseLong(fields[1]),
                     Integer.parseInt(fields[2]),
@@ -174,12 +184,10 @@ public final class PassthroughBridgeClient {
                     Integer.parseInt(fields[18])
             );
 
-            hostState = next;
-
             if (!hostSeen) {
                 hostSeen = true;
                 Sm64CrossMod.LOGGER.info(
-                        "Connected to SM64 passthrough host."
+                        "Connected to native-authority SM64 host."
                 );
             }
         } catch (NumberFormatException ignored) {
@@ -260,25 +268,11 @@ public final class PassthroughBridgeClient {
     ) {
         static HostState disconnected() {
             return new HostState(
-                    false,
-                    -1,
-                    -1,
-                    -1,
-                    0,
-                    0,
-                    "disconnected",
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0,
-                    -1,
-                    0
+                    false, -1, -1, -1, 0, 0, "disconnected",
+                    0.0, 0.0, 0.0,
+                    0.0, 0.0, 0.0,
+                    0.0, 0.0, 0.0,
+                    0, -1, 0
             );
         }
     }

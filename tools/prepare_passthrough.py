@@ -136,6 +136,7 @@ def install_bridge() -> None:
 
     pc_main = SM64_PORT / "src" / "pc" / "pc_main.c"
     mario = SM64_PORT / "src" / "game" / "mario.c"
+    game_init = SM64_PORT / "src" / "game" / "game_init.c"
     hud = SM64_PORT / "src" / "game" / "hud.c"
     makefile = SM64_PORT / "Makefile"
 
@@ -167,27 +168,28 @@ def install_bridge() -> None:
         '#include "rumble_init.h"\n#include "pc/crossmod_bridge.h"\n',
     )
 
-    original = (
-        "    if (gMarioState->action) {\n"
-        "        gMarioState->marioObj->header.gfx.node.flags &= ~GRAPH_RENDER_INVISIBLE;\n"
-        "        mario_reset_bodystate(gMarioState);"
+    patch_once(
+        game_init,
+        '#include "sound_init.h"\n',
+        '#include "sound_init.h"\n#include "pc/crossmod_bridge.h"\n',
     )
 
-    replacement = (
-        "    if (gMarioState->action) {\n"
-        "        if (crossmod_bridge_apply_mario(gMarioState)) {\n"
-        "            gMarioState->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;\n"
-        "            mario_reset_bodystate(gMarioState);\n"
-        "            mario_handle_special_floors(gMarioState);\n"
-        "            mario_process_interactions(gMarioState);\n"
-        "            gMarioState->marioObj->oInteractStatus = 0;\n"
-        "            return 0;\n"
-        "        }\n"
-        "        gMarioState->marioObj->header.gfx.node.flags &= ~GRAPH_RENDER_INVISIBLE;\n"
-        "        mario_reset_bodystate(gMarioState);"
+    patch_once(
+        game_init,
+        "    read_controller_inputs();\n    levelCommandAddr = level_script_execute(levelCommandAddr);",
+        "    read_controller_inputs();\n"
+        "    crossmod_bridge_apply_controller(gPlayer1Controller);\n"
+        "    levelCommandAddr = level_script_execute(levelCommandAddr);",
     )
 
-    patch_once(mario, original, replacement)
+    patch_once(
+        mario,
+        "        play_infinite_stairs_music();\n"
+        "        gMarioState->marioObj->oInteractStatus = 0;",
+        "        play_infinite_stairs_music();\n"
+        "        crossmod_bridge_after_mario_update(gMarioState);\n"
+        "        gMarioState->marioObj->oInteractStatus = 0;",
+    )
 
     patch_once(
         hud,

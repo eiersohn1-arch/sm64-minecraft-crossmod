@@ -4,6 +4,7 @@
 #include <stdbool.h>
 
 struct MarioState;
+struct Controller;
 
 void crossmod_bridge_init(void);
 void crossmod_bridge_shutdown(void);
@@ -11,12 +12,11 @@ void crossmod_bridge_poll(void);
 bool crossmod_bridge_active(void);
 
 /*
- * Makes SM64's Mario object an invisible gameplay proxy for the Minecraft
- * player. The real visible player is rendered by Minecraft.
- *
- * Minecraft melee attacks are converted into native SM64 object interaction
- * hits, so existing SM64 enemy behavior remains the authority for reactions.
+ * Native-authority mode:
+ * Minecraft supplies controls/items, while SM64 owns movement, collision,
+ * actions, warps and progression for the entire game.
  */
-bool crossmod_bridge_apply_mario(struct MarioState *m);
+void crossmod_bridge_apply_controller(struct Controller *controller);
+void crossmod_bridge_after_mario_update(struct MarioState *m);
 
 #endif

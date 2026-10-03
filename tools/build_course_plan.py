@@ -50,6 +50,9 @@ def transform_objective(objective: dict, scale: float) -> dict:
     transformed = dict(objective)
     transformed["pos"] = transform_point(objective["pos"], scale)
 
+    if "finishPos" in objective:
+        transformed["finishPos"] = transform_point(objective["finishPos"], scale)
+
     if "triggerPositions" in objective:
         transformed["triggerPositions"] = [
             transform_point(position, scale)
@@ -95,10 +98,15 @@ def main() -> int:
         transform_point(position, args.units_per_block)
         for position in mission_data["redCoins"]
     ]
+    coin_markers = [
+        transform_point(position, args.units_per_block)
+        for position in mission_data["coinMarkers"]
+    ]
 
     print(
-        f"Parsed {len(objectives)} star objectives and "
-        f"{len(red_coins)} red coin positions."
+        f"Parsed {len(objectives)} star objectives, "
+        f"{len(red_coins)} red coins and "
+        f"{len(coin_markers)} normal coin markers."
     )
 
     palette = sorted(set(blocks.values()))
@@ -119,7 +127,7 @@ def main() -> int:
         output = ROOT / output
 
     data = {
-        "format": "sm64cross-blockplan-v1",
+        "format": "sm64cross-blockplan-v2",
         "course": args.course,
         "sources": {
             "collision": spec["collision"],
@@ -132,6 +140,7 @@ def main() -> int:
             "triangles": len(mesh.triangles),
             "objectives": len(objectives),
             "redCoins": len(red_coins),
+            "coinMarkers": len(coin_markers),
         },
         "spawn": transform_point(spec["spawn_sm64"], args.units_per_block),
         "palette": palette,
@@ -144,6 +153,7 @@ def main() -> int:
         ],
         "objectives": objectives,
         "redCoins": red_coins,
+        "coinMarkers": coin_markers,
     }
 
     output.parent.mkdir(parents=True, exist_ok=True)

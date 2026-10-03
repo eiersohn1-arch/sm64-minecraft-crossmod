@@ -102,8 +102,33 @@ def _normal_y(
     return 0.0 if length == 0 else abs(ny / length)
 
 
-def block_for_surface(surface: str, normal_y: float) -> str:
-    if "SLIPPERY" in surface:
+def block_for_surface(surface: str, normal_y: float, theme: str) -> str:
+    slippery = "SLIPPERY" in surface
+
+    if theme == "castle":
+        if slippery:
+            return "minecraft:polished_diorite"
+        if surface == "SURFACE_HANGABLE":
+            return "minecraft:oak_planks"
+        if normal_y < 0.42:
+            return "minecraft:white_concrete"
+        return "minecraft:polished_diorite"
+
+    if theme == "courtyard":
+        if slippery:
+            return "minecraft:polished_diorite"
+        if normal_y < 0.42:
+            return "minecraft:stone_bricks"
+        return "minecraft:mossy_stone_bricks"
+
+    if theme == "grounds":
+        if slippery:
+            return "minecraft:packed_ice"
+        if normal_y < 0.42:
+            return "minecraft:stone_bricks"
+        return "minecraft:grass_block"
+
+    if slippery:
         return "minecraft:packed_ice"
     if surface == "SURFACE_HANGABLE":
         return "minecraft:oak_planks"
@@ -118,6 +143,7 @@ def voxelize(
     units_per_block: float = 100.0,
     sample_spacing: float = 0.72,
     max_steps: int = 192,
+    theme: str = "outdoor",
 ) -> dict[tuple[int, int, int], str]:
     blocks: dict[tuple[int, int, int], str] = {}
 
@@ -128,7 +154,7 @@ def voxelize(
 
         longest = max(_distance(a, b), _distance(b, c), _distance(c, a))
         steps = max(1, min(max_steps, math.ceil(longest / sample_spacing)))
-        block = block_for_surface(tri.surface, _normal_y(a, b, c))
+        block = block_for_surface(tri.surface, _normal_y(a, b, c), theme)
 
         for i in range(steps + 1):
             u = i / steps

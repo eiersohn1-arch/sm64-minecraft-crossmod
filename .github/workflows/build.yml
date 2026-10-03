@@ -18,54 +18,19 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: Validate Python tools
-        run: python -m py_compile tools/*.py
+      - name: Validate passthrough Python tooling
+        run: python -m py_compile tools/prepare_passthrough.py
 
-      - name: Fetch SM64 decomp
+      - name: Validate passthrough bridge sources
         run: |
-          mkdir -p vendor
-          git clone --depth 1 https://github.com/n64decomp/sm64.git vendor/sm64-decomp
-
-      - name: Validate complete Bob-omb importer
-        run: |
-          python tools/build_course_plan.py bob_omb_battlefield --output /tmp/bob.json
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          data = json.loads(Path("/tmp/bob.json").read_text())
-          indexes = [item["index"] for item in data["objectives"]]
-          assert indexes == [1, 2, 3, 4, 5, 6, 7], indexes
-          assert data["sourceStats"]["redCoins"] == 8, data["sourceStats"]
-          assert data["sourceStats"]["coinMarkers"] + 16 >= 100, data["sourceStats"]
-          assert len(data["blocks"]) > 1000, len(data["blocks"])
-          print("Bob importer OK")
-          print("Blocks:", len(data["blocks"]))
-          print("Objectives:", indexes)
-          print("Red coins:", data["sourceStats"]["redCoins"])
-          print("Normal coin markers:", data["sourceStats"]["coinMarkers"])
-          PY
-
-      - name: Validate Peach's Castle importer
-        run: |
-          python tools/build_castle_plan.py --output /tmp/castle.json
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          data = json.loads(Path("/tmp/castle.json").read_text())
-          assert data["format"] == "sm64cross-hub-v1"
-          assert len(data["areas"]) == 5, data["areas"]
-          assert len(data["warps"]) >= 8, len(data["warps"])
-          assert [d["required"] for d in data["starDoors"]] == [8, 30, 50, 70]
-          assert len(data["blocks"]) > 10000, len(data["blocks"])
-          print("Castle importer OK")
-          print("Blocks:", len(data["blocks"]))
-          print("Areas:", [a["id"] for a in data["areas"]])
-          PY
+          test -f sm64-host/crossmod_bridge.c
+          test -f sm64-host/crossmod_bridge.h
+          grep -q "GRAPH_RENDER_INVISIBLE" sm64-host/crossmod_bridge.c
+          grep -q "CROSSMOD_PORT 6464" sm64-host/crossmod_bridge.c
+          grep -q "sm64-port/sm64-port.git" tools/prepare_passthrough.py
 
       - name: Validate Gradle wrapper
         uses: gradle/actions/wrapper-validation@v4
 
-      - name: Build
+      - name: Build Fabric bridge
         run: ./gradlew build

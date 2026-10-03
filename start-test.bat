@@ -26,17 +26,33 @@ if not exist "gradlew.bat" (
   exit /b 1
 )
 
-echo [1/2] Starte den gepatchten Super-Mario-64-Host...
+rem Never let the host consume a stale frame/HWND from an older test session.
+del /q "%TEMP%\sm64cross_frame.bin" >nul 2>&1
+
+echo [1/2] Starte den nativen Super-Mario-64-Host...
 start "SM64 Crossmod Host" "%SM64_EXE%"
 
 echo.
-echo [2/2] Starte Minecraft 1.21.1 mit dem Fabric-Crossmod...
+echo [2/2] Starte Minecraft 1.21.1 mit Fabric...
 echo.
-echo WICHTIG:
-echo   - SM64 und Minecraft laufen fuer diesen Test gleichzeitig.
-echo   - Oeffne in Minecraft eine Welt, damit Steve existiert.
-echo   - Der finale gemeinsame 3D-Compositor ist noch in Arbeit.
+echo SO FUNKTIONIERT DER NEUE COMPOSITOR:
+echo   1. Oeffne in Minecraft eine Welt.
+echo   2. Sobald die Bridge verbunden ist, legt sich das SM64-Bild
+echo      automatisch ueber die Minecraft-Spielflaeche.
+echo   3. Minecraft bleibt darunter fokussiert. Tastatur, Maus,
+echo      Hotbar und Inventar funktionieren deshalb weiterhin normal.
+echo   4. Steve/Items werden mit SM64-Tiefe zusammengesetzt:
+echo      eine SM64-Wand kann Steve wirklich verdecken.
 echo.
-call gradlew.bat runClient
+echo SM64-TASTEN:
+echo   WASD = laufen     LEERTASTE = A/Sprung
+echo   Linksklick/Rechtsklick = B/Angriff/Benutzen
+echo   SHIFT = Z         P = Start/Pause
+echo   I J K L = C-Tasten, O = R, U = L
+echo.
+echo Zum ersten Test wird Minecraft in 1280x720 gestartet.
+echo.
+
+call gradlew.bat runClient --args="--width 1280 --height 720"
 
 endlocal

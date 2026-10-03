@@ -42,10 +42,44 @@ jobs:
           git clone --depth 1 https://github.com/sm64-port/sm64-port.git vendor/sm64-port
           git clone --depth 1 https://github.com/rehan-remade/universal-modder vendor/universal-modder
           python - <<'PY'
+          from pathlib import Path
           import tools.prepare_passthrough as p
+
+          # Simulate a user's already-patched vendor checkout from the old
+          # position-authority bridge, then ensure the current setup migrates
+          # it automatically.
+          mario = Path("vendor/sm64-port/src/game/mario.c")
+          text = mario.read_text(encoding="utf-8")
+          vanilla = (
+              "    if (gMarioState->action) {\n"
+              "        gMarioState->marioObj->header.gfx.node.flags &= ~GRAPH_RENDER_INVISIBLE;\n"
+              "        mario_reset_bodystate(gMarioState);"
+          )
+          legacy = (
+              "    if (gMarioState->action) {\n"
+              "        if (crossmod_bridge_apply_mario(gMarioState)) {\n"
+              "            gMarioState->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;\n"
+              "            mario_reset_bodystate(gMarioState);\n"
+              "            mario_handle_special_floors(gMarioState);\n"
+              "            mario_process_interactions(gMarioState);\n"
+              "            gMarioState->marioObj->oInteractStatus = 0;\n"
+              "            return 0;\n"
+              "        }\n"
+              "        gMarioState->marioObj->header.gfx.node.flags &= ~GRAPH_RENDER_INVISIBLE;\n"
+              "        mario_reset_bodystate(gMarioState);"
+          )
+          if vanilla not in text:
+              raise SystemExit("vanilla Mario migration marker missing")
+          mario.write_text(text.replace(vanilla, legacy, 1), encoding="utf-8")
+
           p.patch_sm64_port_toolchain()
           p.install_bridge()
-          print("fresh checkout patch OK")
+
+          migrated = mario.read_text(encoding="utf-8")
+          if "crossmod_bridge_apply_mario" in migrated:
+              raise SystemExit("legacy apply_mario patch survived migration")
+
+          print("fresh/legacy checkout migration patch OK")
           PY
           grep -q "crossmod_bridge_apply_controller(gPlayer1Controller)" vendor/sm64-port/src/game/game_init.c
           grep -q "crossmod_bridge_after_mario_update(gMarioState)" vendor/sm64-port/src/game/mario.c

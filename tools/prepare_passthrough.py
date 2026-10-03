@@ -171,6 +171,39 @@ def install_bridge() -> None:
     makefile = SM64_PORT / "Makefile"
     gfx_d3d11 = SM64_PORT / "src" / "pc" / "gfx" / "gfx_direct3d11.cpp"
 
+    # Migrate vendor/sm64-port checkouts that were patched by the older
+    # position-authority bridge. setup-windows.bat intentionally reuses the
+    # existing vendor checkout, so an old crossmod_bridge_apply_mario() block
+    # can survive a git pull even though the current bridge no longer defines
+    # that function. Restore vanilla execute_mario_action() before installing
+    # the new native-authority controller bridge.
+    mario_text = mario.read_text(encoding="utf-8")
+    legacy_mario_block = (
+        "    if (gMarioState->action) {\n"
+        "        if (crossmod_bridge_apply_mario(gMarioState)) {\n"
+        "            gMarioState->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;\n"
+        "            mario_reset_bodystate(gMarioState);\n"
+        "            mario_handle_special_floors(gMarioState);\n"
+        "            mario_process_interactions(gMarioState);\n"
+        "            gMarioState->marioObj->oInteractStatus = 0;\n"
+        "            return 0;\n"
+        "        }\n"
+        "        gMarioState->marioObj->header.gfx.node.flags &= ~GRAPH_RENDER_INVISIBLE;\n"
+        "        mario_reset_bodystate(gMarioState);"
+    )
+    vanilla_mario_block = (
+        "    if (gMarioState->action) {\n"
+        "        gMarioState->marioObj->header.gfx.node.flags &= ~GRAPH_RENDER_INVISIBLE;\n"
+        "        mario_reset_bodystate(gMarioState);"
+    )
+
+    if legacy_mario_block in mario_text:
+        mario.write_text(
+            mario_text.replace(legacy_mario_block, vanilla_mario_block, 1),
+            encoding="utf-8",
+        )
+        print("Migrated old crossmod_bridge_apply_mario patch.")
+
     patch_once(
         pc_main,
         '#include "configfile.h"\n',

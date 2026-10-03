@@ -69,10 +69,10 @@ int main(int argc, char **argv) {
         return 2;
     }
 
-    std::string source(
+    std::string source{
         std::istreambuf_iterator<char>(input),
         std::istreambuf_iterator<char>()
-    );
+    };
 
     bool ok =
         compile(source, "VSMain", "vs_4_0")

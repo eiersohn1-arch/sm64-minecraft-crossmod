@@ -7,7 +7,9 @@ import java.util.List;
 
 public record CoursePlan(
         List<Placement> blocks,
+        BlockPos spawn,
         List<BlockPos> redCoins,
+        List<BlockPos> coinMarkers,
         List<StarObjective> objectives
 ) {
     public record Placement(int x, int y, int z, BlockState state) {
@@ -16,8 +18,11 @@ public record CoursePlan(
     public record StarObjective(
             int index,
             String id,
+            String name,
             String kind,
-            BlockPos position
+            BlockPos position,
+            List<BlockPos> triggerPositions,
+            BlockPos finishPosition
     ) {
     }
 }

@@ -46,6 +46,9 @@ jobs:
           grep -q "crossmod_bridge_apply_controller(gPlayer1Controller)" vendor/sm64-port/src/game/game_init.c
           grep -q "crossmod_bridge_after_mario_update(gMarioState)" vendor/sm64-port/src/game/mario.c
           grep -q "crossmod_bridge_poll" vendor/sm64-port/src/pc/pc_main.c
+          test -f vendor/sm64-port/src/pc/gfx/mc_overlay_dx11.inc
+          grep -q "mc_overlay_render" vendor/sm64-port/src/pc/gfx/gfx_direct3d11.cpp
+          grep -q "depth_shader_resource_view" vendor/sm64-port/src/pc/gfx/gfx_direct3d11.cpp
 
       - name: Whole-game integrity
         run: |

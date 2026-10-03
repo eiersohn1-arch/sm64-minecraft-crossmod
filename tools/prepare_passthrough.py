@@ -133,12 +133,17 @@ def install_bridge() -> None:
         ROOT / "sm64-host" / "crossmod_bridge.h",
         SM64_PORT / "src" / "pc" / "crossmod_bridge.h",
     )
+    shutil.copy2(
+        ROOT / "sm64-host" / "mc_overlay_dx11.inc",
+        SM64_PORT / "src" / "pc" / "gfx" / "mc_overlay_dx11.inc",
+    )
 
     pc_main = SM64_PORT / "src" / "pc" / "pc_main.c"
     mario = SM64_PORT / "src" / "game" / "mario.c"
     game_init = SM64_PORT / "src" / "game" / "game_init.c"
     hud = SM64_PORT / "src" / "game" / "hud.c"
     makefile = SM64_PORT / "Makefile"
+    gfx_d3d11 = SM64_PORT / "src" / "pc" / "gfx" / "gfx_direct3d11.cpp"
 
     patch_once(
         pc_main,
@@ -205,6 +210,123 @@ def install_bridge() -> None:
         "        return;\n"
         "    }\n\n"
         "    s16 hudDisplayFlags;",
+    )
+
+
+    patch_once(
+        gfx_d3d11,
+        "    ComPtr<ID3D11DepthStencilView> depth_stencil_view;\n",
+        "    ComPtr<ID3D11DepthStencilView> depth_stencil_view;\n"
+        "    ComPtr<ID3D11Texture2D> depth_stencil_texture;\n"
+        "    ComPtr<ID3D11ShaderResourceView> depth_shader_resource_view;\n",
+    )
+
+    patch_once(
+        gfx_d3d11,
+        "        d3d.backbuffer_view.Reset();\n"
+        "        d3d.depth_stencil_view.Reset();\n",
+        "        d3d.backbuffer_view.Reset();\n"
+        "        d3d.depth_stencil_view.Reset();\n"
+        "        d3d.depth_shader_resource_view.Reset();\n"
+        "        d3d.depth_stencil_texture.Reset();\n",
+    )
+
+    old_depth_block = """    // Create depth buffer
+
+    D3D11_TEXTURE2D_DESC depth_stencil_texture_desc;
+    ZeroMemory(&depth_stencil_texture_desc, sizeof(D3D11_TEXTURE2D_DESC));
+
+    depth_stencil_texture_desc.Width = desc1.Width;
+    depth_stencil_texture_desc.Height = desc1.Height;
+    depth_stencil_texture_desc.MipLevels = 1;
+    depth_stencil_texture_desc.ArraySize = 1;
+    depth_stencil_texture_desc.Format = d3d.feature_level >= D3D_FEATURE_LEVEL_10_0 ?
+                                        DXGI_FORMAT_D32_FLOAT : DXGI_FORMAT_D24_UNORM_S8_UINT;
+    depth_stencil_texture_desc.SampleDesc = d3d.sample_description;
+    depth_stencil_texture_desc.Usage = D3D11_USAGE_DEFAULT;
+    depth_stencil_texture_desc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+    depth_stencil_texture_desc.CPUAccessFlags = 0;
+    depth_stencil_texture_desc.MiscFlags = 0;
+
+    ComPtr<ID3D11Texture2D> depth_stencil_texture;
+    ThrowIfFailed(d3d.device->CreateTexture2D(&depth_stencil_texture_desc, nullptr, depth_stencil_texture.GetAddressOf()));
+    ThrowIfFailed(d3d.device->CreateDepthStencilView(depth_stencil_texture.Get(), nullptr, d3d.depth_stencil_view.GetAddressOf()));
+"""
+
+    new_depth_block = """    // Create depth buffer. The typeless texture is both the normal SM64
+    // depth-stencil target and a shader resource for the Minecraft compositor.
+
+    const bool depth32 = d3d.feature_level >= D3D_FEATURE_LEVEL_10_0;
+
+    D3D11_TEXTURE2D_DESC depth_stencil_texture_desc;
+    ZeroMemory(&depth_stencil_texture_desc, sizeof(D3D11_TEXTURE2D_DESC));
+
+    depth_stencil_texture_desc.Width = desc1.Width;
+    depth_stencil_texture_desc.Height = desc1.Height;
+    depth_stencil_texture_desc.MipLevels = 1;
+    depth_stencil_texture_desc.ArraySize = 1;
+    depth_stencil_texture_desc.Format = depth32 ?
+                                        DXGI_FORMAT_R32_TYPELESS :
+                                        DXGI_FORMAT_R24G8_TYPELESS;
+    depth_stencil_texture_desc.SampleDesc = d3d.sample_description;
+    depth_stencil_texture_desc.Usage = D3D11_USAGE_DEFAULT;
+    depth_stencil_texture_desc.BindFlags =
+        D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
+    depth_stencil_texture_desc.CPUAccessFlags = 0;
+    depth_stencil_texture_desc.MiscFlags = 0;
+
+    ThrowIfFailed(d3d.device->CreateTexture2D(
+        &depth_stencil_texture_desc,
+        nullptr,
+        d3d.depth_stencil_texture.GetAddressOf()
+    ));
+
+    D3D11_DEPTH_STENCIL_VIEW_DESC dsv_desc = {};
+    dsv_desc.Format = depth32 ?
+        DXGI_FORMAT_D32_FLOAT :
+        DXGI_FORMAT_D24_UNORM_S8_UINT;
+    dsv_desc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+
+    ThrowIfFailed(d3d.device->CreateDepthStencilView(
+        d3d.depth_stencil_texture.Get(),
+        &dsv_desc,
+        d3d.depth_stencil_view.GetAddressOf()
+    ));
+
+    D3D11_SHADER_RESOURCE_VIEW_DESC depth_srv_desc = {};
+    depth_srv_desc.Format = depth32 ?
+        DXGI_FORMAT_R32_FLOAT :
+        DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+    depth_srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    depth_srv_desc.Texture2D.MipLevels = 1;
+
+    ThrowIfFailed(d3d.device->CreateShaderResourceView(
+        d3d.depth_stencil_texture.Get(),
+        &depth_srv_desc,
+        d3d.depth_shader_resource_view.GetAddressOf()
+    ));
+"""
+
+    patch_once(
+        gfx_d3d11,
+        old_depth_block,
+        new_depth_block,
+    )
+
+    patch_once(
+        gfx_d3d11,
+        "} d3d;\n\nstatic LARGE_INTEGER",
+        "} d3d;\n\n"
+        '#include "mc_overlay_dx11.inc"\n\n'
+        "static LARGE_INTEGER",
+    )
+
+    patch_once(
+        gfx_d3d11,
+        "static void gfx_d3d11_end_frame(void) {\n}\n",
+        "static void gfx_d3d11_end_frame(void) {\n"
+        "    mc_overlay_render();\n"
+        "}\n",
     )
 
     patch_once(

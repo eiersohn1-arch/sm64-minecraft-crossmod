@@ -22,3 +22,10 @@ Result:
 The current implementation uses the temp-file mapping `sm64cross_frame.bin` so Java 21 and the MinGW SM64 host can exchange frames without JNI/JNA or third-party runtime DLLs.
 
 This is the first in-host compositor milestone. It is intentionally kept inside the original SM64 renderer so the final game does not require ReShade.
+
+
+## Single visible play surface
+
+Once Minecraft has published its native Windows handle and content-area rectangle, the SM64 window switches into a borderless click-through overlay positioned exactly above the Minecraft client area.
+
+Minecraft deliberately remains the focused window underneath. This means normal Minecraft keyboard/mouse input, hotbar selection and inventory screens keep working, while the player sees the composited SM64 output above it. The overlay uses `WS_EX_NOACTIVATE` and `WS_EX_TRANSPARENT`; when Minecraft loses focus the SM64 overlay hides, so it does not cover other desktop applications.

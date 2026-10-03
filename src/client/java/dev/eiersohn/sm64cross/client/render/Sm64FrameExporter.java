@@ -5,13 +5,17 @@ import com.mojang.blaze3d.systems.RenderSystem;
 import dev.eiersohn.sm64cross.Sm64CrossMod;
 import dev.eiersohn.sm64cross.client.bridge.PassthroughBridgeClient;
 import net.minecraft.client.Minecraft;
+import org.lwjgl.glfw.GLFW;
+import org.lwjgl.glfw.GLFWNativeWin32;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
 
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.IntBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
@@ -35,6 +39,11 @@ import java.nio.file.Path;
  * 36 float Minecraft near plane
  * 40 float Minecraft far plane
  * 44 float vertical FOV degrees
+ * 48 int Minecraft client-area screen X
+ * 52 int Minecraft client-area screen Y
+ * 56 int Minecraft client-area window width
+ * 60 int Minecraft client-area window height
+ * 64 long native Win32 HWND (0 on non-Windows)
  *
  * data:
  * 4096                  world RGBA8
@@ -293,6 +302,7 @@ public final class Sm64FrameExporter {
                 .hostState()
                 .cameraFov();
         mapped.putFloat(44, fov);
+        publishWindowInfo(minecraft);
 
         putLayer(HEADER, world, bytes);
         putLayer(HEADER + (long) bytes, depth, bytes);
@@ -300,6 +310,40 @@ public final class Sm64FrameExporter {
 
         sequence = odd + 1L;
         mapped.putLong(16, sequence);
+    }
+
+
+    private static void publishWindowInfo(Minecraft minecraft) {
+        long glfwWindow = minecraft.getWindow().getWindow();
+
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            IntBuffer x = stack.mallocInt(1);
+            IntBuffer y = stack.mallocInt(1);
+            IntBuffer width = stack.mallocInt(1);
+            IntBuffer height = stack.mallocInt(1);
+
+            GLFW.glfwGetWindowPos(glfwWindow, x, y);
+            GLFW.glfwGetWindowSize(glfwWindow, width, height);
+
+            mapped.putInt(48, x.get(0));
+            mapped.putInt(52, y.get(0));
+            mapped.putInt(56, width.get(0));
+            mapped.putInt(60, height.get(0));
+        }
+
+        long nativeWindow = 0L;
+        if (System.getProperty("os.name", "")
+                .toLowerCase(Locale.ROOT)
+                .contains("win")) {
+            try {
+                nativeWindow = GLFWNativeWin32
+                        .glfwGetWin32Window(glfwWindow);
+            } catch (Throwable ignored) {
+                nativeWindow = 0L;
+            }
+        }
+
+        mapped.putLong(64, nativeWindow);
     }
 
     private static void putLayer(

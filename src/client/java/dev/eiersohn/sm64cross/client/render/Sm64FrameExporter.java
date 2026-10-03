@@ -19,6 +19,7 @@ import java.nio.IntBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
+import java.util.Locale;
 
 /**
  * Exports Minecraft's transparent 3D contribution and HUD for the SM64 host.

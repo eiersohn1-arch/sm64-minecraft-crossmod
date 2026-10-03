@@ -26,8 +26,7 @@ abstract class Sm64CameraMixin {
     @Shadow
     protected abstract void setRotation(
             float yaw,
-            float pitch,
-            float roll
+            float pitch
     );
 
     @Inject(method = "setup", at = @At("TAIL"))
@@ -67,7 +66,7 @@ abstract class Sm64CameraMixin {
         );
 
         this.setPosition(cx, cy, cz);
-        this.setRotation(yaw, pitch, 0.0f);
+        this.setRotation(yaw, pitch);
 
         /*
          * SM64 uses a third-person camera for normal play. Marking the

@@ -33,8 +33,8 @@ jobs:
           grep -q "GRAPH_RENDER_INVISIBLE" sm64-host/crossmod_bridge.c
           grep -q "crossmod_process_combat" sm64-host/crossmod_bridge.c
           grep -q "gLakituState.curPos" sm64-host/crossmod_bridge.c
-          grep -q "keyUp" src/client/java/dev/eiersohn/sm64cross/client/bridge/PassthroughBridgeClient.java
-          grep -q "keyJump" src/client/java/dev/eiersohn/sm64cross/client/bridge/PassthroughBridgeClient.java
+          grep -q "keyUp" src/client/java/dev/eiersohn/sm64cross/client/bridge/InputPublisher.java
+          grep -q "keyJump" src/client/java/dev/eiersohn/sm64cross/client/bridge/InputPublisher.java
 
       - name: Patch a fresh upstream SM64 checkout
         run: |
@@ -93,6 +93,7 @@ jobs:
         run: |
           mkdir -p vendor
           git clone --depth 1 https://github.com/sm64-port/sm64-port.git vendor/sm64-port
+          git clone --depth 1 https://github.com/rehan-remade/universal-modder vendor/universal-modder
           python - <<'PY'
           import tools.prepare_passthrough as p
           p.install_bridge()
@@ -104,3 +105,4 @@ jobs:
         run: |
           cd vendor/sm64-port
           g++ -std=gnu++17 -fsyntax-only             -DENABLE_DX11=1 -DTARGET_WINDOWS=1             -DNO_SEGMENTED_MEMORY=1 -DUSE_SYSTEM_MALLOC=1             -DWIDESCREEN=1 -D_LANGUAGE_C=1 -DVERSION_US=1             -I. -Iinclude -Isrc -Isrc/pc -Isrc/pc/gfx             src/pc/gfx/gfx_direct3d11.cpp
+          g++ -std=gnu++17 -fsyntax-only -Isrc/pc src/pc/ws.cpp src/pc/crossmod_ws_api.cpp

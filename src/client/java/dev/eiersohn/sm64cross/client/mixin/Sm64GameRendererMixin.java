@@ -5,6 +5,7 @@ import dev.eiersohn.sm64cross.client.render.Sm64FrameExporter;
 import net.minecraft.client.Camera;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.renderer.GameRenderer;
+import org.joml.Matrix4f;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -31,6 +32,27 @@ abstract class Sm64GameRendererMixin {
             CallbackInfo ci
     ) {
         Sm64FrameExporter.captureOverlay();
+    }
+
+    @Inject(
+            method = "renderItemInHand",
+            at = @At("HEAD"),
+            cancellable = true
+    )
+    private void sm64cross$hideFirstPersonHand(
+            Camera camera,
+            float partialTick,
+            Matrix4f projectionMatrix,
+            CallbackInfo ci
+    ) {
+        if (HostState.connected()) {
+            /*
+             * Steve is already rendered as the detached local-player entity.
+             * His selected item therefore appears in his model's hand.
+             * Do not add a second first-person hand on top of the host scene.
+             */
+            ci.cancel();
+        }
     }
 
     @Inject(method = "getFov", at = @At("HEAD"), cancellable = true)

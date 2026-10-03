@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "sm64cross",
+  "version": "${version}",
+  "name": "SM64 × Minecraft Crossmod",
+  "description": "Super Mario 64 progression and levels rebuilt around the native Minecraft player, inventory and items.",
+  "authors": ["eiersohn1-arch"],
+  "contact": {
+    "sources": "https://github.com/eiersohn1-arch/sm64-minecraft-crossmod"
+  },
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["dev.eiersohn.sm64cross.Sm64CrossMod"],
+    "client": ["dev.eiersohn.sm64cross.client.Sm64CrossClient"]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.5",
+    "minecraft": "~1.21.1",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}

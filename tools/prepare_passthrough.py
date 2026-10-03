@@ -176,10 +176,10 @@ def install_bridge() -> None:
 
     patch_once(
         game_init,
-        "    read_controller_inputs();\n    levelCommandAddr = level_script_execute(levelCommandAddr);",
-        "    read_controller_inputs();\n"
-        "    crossmod_bridge_apply_controller(gPlayer1Controller);\n"
-        "    levelCommandAddr = level_script_execute(levelCommandAddr);",
+        "        read_controller_inputs();\n        levelCommandAddr = level_script_execute(levelCommandAddr);",
+        "        read_controller_inputs();\n"
+        "        crossmod_bridge_apply_controller(gPlayer1Controller);\n"
+        "        levelCommandAddr = level_script_execute(levelCommandAddr);",
     )
 
     patch_once(

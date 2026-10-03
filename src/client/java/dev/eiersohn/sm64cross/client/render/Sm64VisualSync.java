@@ -1,57 +1,43 @@
 package dev.eiersohn.sm64cross.client.render;
 
-import dev.eiersohn.sm64cross.client.bridge.PassthroughBridgeClient;
+import dev.eiersohn.sm64cross.client.bridge.HostState;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * Mirrors the authoritative SM64 player into a render-only region of the
- * Minecraft world. The huge Y offset keeps normal Minecraft terrain outside
- * the SM64 camera frustum, while Steve, held items and particles can still be
- * rendered by vanilla Minecraft.
+ * Universal-modder style PlayerSync: the host owns the pose and Minecraft
+ * renders Steve at that pose.
  */
 public final class Sm64VisualSync {
-    public static final double SM64_UNITS_PER_BLOCK = 100.0;
-    public static final double VOID_Y = 10_000.0;
+    private static final double VOID_Y = 10_000.0;
 
     private Sm64VisualSync() {
     }
 
-    public static double x(double sm64X) {
-        return sm64X / SM64_UNITS_PER_BLOCK;
-    }
-
-    public static double y(double sm64Y) {
-        return VOID_Y + sm64Y / SM64_UNITS_PER_BLOCK;
-    }
-
-    public static double z(double sm64Z) {
-        return -sm64Z / SM64_UNITS_PER_BLOCK;
-    }
-
     public static void apply(Minecraft client) {
-        PassthroughBridgeClient.HostState state =
-                PassthroughBridgeClient.hostState();
-
+        HostState.State state = HostState.latest();
         LocalPlayer player = client.player;
-        if (player == null || !state.connected()) {
+
+        if (!state.connected() || player == null) {
             return;
         }
 
+        // Host coordinates are already Minecraft-scale. A large constant
+        // vertical render origin keeps vanilla terrain away from the camera.
         player.setPos(
-                x(state.playerX()),
-                y(state.playerY()),
-                z(state.playerZ())
+                state.playerX(),
+                state.playerY() + VOID_Y,
+                state.playerZ()
         );
-
         player.setDeltaMovement(Vec3.ZERO);
         player.setNoGravity(true);
 
-        /*
-         * Keep the familiar Minecraft hearts/hunger HUD, but make the hearts
-         * represent the authoritative SM64 eight-wedge health meter.
-         */
+        player.setYRot(state.bodyYaw());
+        player.setYHeadRot(state.bodyYaw());
+        player.setYBodyRot(state.bodyYaw());
+        player.setXRot(0.0f);
+
         float healthFraction = Math.max(
                 0.0f,
                 Math.min(1.0f, (state.health() >> 8) / 8.0f)
@@ -61,13 +47,9 @@ public final class Sm64VisualSync {
         );
         player.getFoodData().setFoodLevel(20);
         player.getFoodData().setSaturation(20.0f);
+    }
 
-        float yaw = (float) (
-                -state.faceAngle() * 360.0 / 65536.0
-        );
-        player.setYRot(yaw);
-        player.setYHeadRot(yaw);
-        player.setYBodyRot(yaw);
-        player.setXRot(0.0f);
+    public static double renderY(double hostY) {
+        return hostY + VOID_Y;
     }
 }

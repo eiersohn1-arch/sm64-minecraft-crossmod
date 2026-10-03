@@ -1,6 +1,7 @@
 package dev.eiersohn.sm64cross.client;
 
-import dev.eiersohn.sm64cross.client.bridge.PassthroughBridgeClient;
+import dev.eiersohn.sm64cross.client.bridge.HostLink;
+import dev.eiersohn.sm64cross.client.bridge.InputPublisher;
 import dev.eiersohn.sm64cross.client.render.Sm64Hud;
 import dev.eiersohn.sm64cross.client.render.Sm64VisualSync;
 import net.fabricmc.api.ClientModInitializer;
@@ -11,10 +12,10 @@ public final class Sm64CrossClient implements ClientModInitializer {
     public void onInitializeClient() {
         Sm64Keys.register();
         Sm64Hud.register();
-        PassthroughBridgeClient.start();
+        HostLink.launch();
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            PassthroughBridgeClient.tick(client);
+            InputPublisher.tick(client);
             Sm64VisualSync.apply(client);
         });
     }

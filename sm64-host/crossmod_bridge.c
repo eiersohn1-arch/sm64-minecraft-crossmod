@@ -65,6 +65,7 @@ struct CrossmodPlayerPacket {
     float pitch;
     char held_item[96];
     unsigned long attack_serial;
+    unsigned long use_serial;
     char weapon_kind[24];
     float reach_blocks;
     int power;
@@ -96,6 +97,7 @@ static int s_has_player;
 static struct CrossmodPlayerPacket s_player;
 
 static unsigned long s_last_processed_attack_serial;
+static unsigned long s_last_processed_use_serial;
 static unsigned long s_last_hit_attack_serial;
 static int s_last_hit_count;
 
@@ -172,7 +174,7 @@ static int parse_player_packet(
 ) {
     int count = sscanf(
             text,
-            "P|%lu|%lf|%lf|%lf|%f|%f|%95[^|]|%lu|%23[^|]|%f|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%f|%d",
+            "P|%lu|%lf|%lf|%lf|%f|%f|%95[^|]|%lu|%lu|%23[^|]|%f|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%f|%d",
             &packet->sequence,
             &packet->minecraft_x,
             &packet->minecraft_y,
@@ -181,6 +183,7 @@ static int parse_player_packet(
             &packet->pitch,
             packet->held_item,
             &packet->attack_serial,
+            &packet->use_serial,
             packet->weapon_kind,
             &packet->reach_blocks,
             &packet->power,
@@ -204,7 +207,7 @@ static int parse_player_packet(
             &packet->food
     );
 
-    return count == 29;
+    return count == 30;
 }
 
 void crossmod_bridge_poll(void) {
@@ -435,36 +438,205 @@ static struct Object *crossmod_find_melee_target(
     return best;
 }
 
-static void crossmod_process_combat(struct MarioState *m) {
-    if (s_player.attack_serial == 0
-            || s_player.attack_serial == s_last_processed_attack_serial) {
-        return;
-    }
-
-    s_last_processed_attack_serial = s_player.attack_serial;
-    s_last_hit_count = 0;
-
-    if (strcmp(s_player.weapon_kind, "ranged") == 0) {
-        return;
-    }
-
-    struct Object *target = crossmod_find_melee_target(
-            m,
-            crossmod_clamp_melee_reach(s_player.reach_blocks)
-    );
-
+static void crossmod_attack_object(
+        struct MarioState *m,
+        struct Object *target,
+        int attack_type
+) {
     if (target == NULL) {
         return;
     }
 
     target->oInteractStatus =
-            ATTACK_KICK_OR_TRIP
+            attack_type
             | INT_STATUS_INTERACTED
             | INT_STATUS_WAS_ATTACKED;
 
     m->interactObj = target;
-    s_last_hit_count = s_player.power > 0 ? s_player.power : 1;
-    s_last_hit_attack_serial = s_player.attack_serial;
+}
+
+static struct Object *crossmod_find_ranged_target(
+        struct MarioState *m,
+        float reach
+) {
+    static const int combat_lists[] = {
+        OBJ_LIST_PUSHABLE,
+        OBJ_LIST_GENACTOR,
+        OBJ_LIST_DESTRUCTIVE,
+        OBJ_LIST_DEFAULT,
+        OBJ_LIST_SURFACE
+    };
+
+    float forward_x = sins(m->faceAngle[1]);
+    float forward_z = coss(m->faceAngle[1]);
+
+    struct Object *best = NULL;
+    float best_t = reach + 1.0f;
+
+    int list_index;
+    for (list_index = 0;
+         list_index < (int) (sizeof(combat_lists) / sizeof(combat_lists[0]));
+         list_index++) {
+        struct ObjectNode *list = &gObjectLists[combat_lists[list_index]];
+        struct ObjectNode *node = list->next;
+
+        while (node != list) {
+            struct Object *obj = (struct Object *) node;
+            node = node->next;
+
+            if (!crossmod_is_attackable_object(obj)) {
+                continue;
+            }
+
+            float dx = obj->oPosX - m->pos[0];
+            float dz = obj->oPosZ - m->pos[2];
+            float t = dx * forward_x + dz * forward_z;
+
+            if (t <= 0.0f || t > reach || t >= best_t) {
+                continue;
+            }
+
+            float horizontal_sq = dx * dx + dz * dz;
+            float perpendicular_sq = horizontal_sq - t * t;
+            if (perpendicular_sq < 0.0f) {
+                perpendicular_sq = 0.0f;
+            }
+
+            float radius = obj->hurtboxRadius + 80.0f;
+            if (radius < 100.0f) {
+                radius = 100.0f;
+            }
+
+            float center_y = obj->oPosY + obj->hurtboxHeight * 0.5f;
+            float dy = center_y - (m->pos[1] + 100.0f);
+            float vertical_limit = obj->hurtboxHeight * 0.5f + 160.0f;
+
+            if (perpendicular_sq <= radius * radius
+                    && fabsf(dy) <= vertical_limit) {
+                best = obj;
+                best_t = t;
+            }
+        }
+    }
+
+    return best;
+}
+
+static int crossmod_explode_near_mario(
+        struct MarioState *m,
+        float radius
+) {
+    static const int combat_lists[] = {
+        OBJ_LIST_PUSHABLE,
+        OBJ_LIST_GENACTOR,
+        OBJ_LIST_DESTRUCTIVE,
+        OBJ_LIST_DEFAULT,
+        OBJ_LIST_SURFACE
+    };
+
+    float radius_sq = radius * radius;
+    int hits = 0;
+
+    int list_index;
+    for (list_index = 0;
+         list_index < (int) (sizeof(combat_lists) / sizeof(combat_lists[0]));
+         list_index++) {
+        struct ObjectNode *list = &gObjectLists[combat_lists[list_index]];
+        struct ObjectNode *node = list->next;
+
+        while (node != list) {
+            struct Object *obj = (struct Object *) node;
+            node = node->next;
+
+            if (!crossmod_is_attackable_object(obj)) {
+                continue;
+            }
+
+            float dx = obj->oPosX - m->pos[0];
+            float dy = obj->oPosY - m->pos[1];
+            float dz = obj->oPosZ - m->pos[2];
+            float distance_sq = dx * dx + dy * dy + dz * dz;
+
+            if (distance_sq <= radius_sq) {
+                crossmod_attack_object(
+                    m,
+                    obj,
+                    ATTACK_KICK_OR_TRIP
+                );
+                hits++;
+            }
+        }
+    }
+
+    return hits;
+}
+
+static void crossmod_process_combat(struct MarioState *m) {
+    if (s_player.attack_serial != 0
+            && s_player.attack_serial != s_last_processed_attack_serial) {
+        s_last_processed_attack_serial = s_player.attack_serial;
+        s_last_hit_count = 0;
+
+        if (strcmp(s_player.weapon_kind, "ranged") != 0
+                && strcmp(s_player.weapon_kind, "explosive") != 0) {
+            struct Object *target = crossmod_find_melee_target(
+                m,
+                crossmod_clamp_melee_reach(s_player.reach_blocks)
+            );
+
+            if (target != NULL) {
+                crossmod_attack_object(
+                    m,
+                    target,
+                    ATTACK_KICK_OR_TRIP
+                );
+                s_last_hit_count =
+                    s_player.power > 0 ? s_player.power : 1;
+                s_last_hit_attack_serial =
+                    s_player.attack_serial;
+            }
+        }
+    }
+
+    if (s_player.use_serial == 0
+            || s_player.use_serial == s_last_processed_use_serial) {
+        return;
+    }
+
+    s_last_processed_use_serial = s_player.use_serial;
+
+    if (strcmp(s_player.weapon_kind, "ranged") == 0
+            || strcmp(s_player.weapon_kind, "trident") == 0) {
+        float reach = strcmp(s_player.weapon_kind, "trident") == 0
+            ? 2000.0f
+            : 3000.0f;
+
+        struct Object *target = crossmod_find_ranged_target(
+            m,
+            reach
+        );
+
+        if (target != NULL) {
+            crossmod_attack_object(
+                m,
+                target,
+                ATTACK_KICK_OR_TRIP
+            );
+            s_last_hit_count =
+                s_player.power > 0 ? s_player.power : 1;
+            s_last_hit_attack_serial =
+                s_player.attack_serial;
+        }
+        return;
+    }
+
+    if (strcmp(s_player.weapon_kind, "explosive") == 0) {
+        int hits = crossmod_explode_near_mario(
+            m,
+            500.0f
+        );
+        s_last_hit_count = hits;
+    }
 }
 
 static void send_state(const struct MarioState *m) {

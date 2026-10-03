@@ -21,7 +21,9 @@ public final class PassthroughBridgeClient {
     private static DatagramSocket socket;
     private static long sequence;
     private static long attackSerial;
+    private static long useSerial;
     private static boolean previousAttackDown;
+    private static boolean previousUseDown;
     private static boolean hostSeen;
     private static HostState hostState = HostState.disconnected();
 
@@ -54,6 +56,7 @@ public final class PassthroughBridgeClient {
     public static void tick(Minecraft client) {
         if (socket == null || client.player == null || client.level == null) {
             previousAttackDown = false;
+            previousUseDown = false;
             return;
         }
 
@@ -70,6 +73,11 @@ public final class PassthroughBridgeClient {
             attackSerial++;
         }
         previousAttackDown = attackDown;
+
+        if (useDown && !previousUseDown) {
+            useSerial++;
+        }
+        previousUseDown = useDown;
 
         CombatProfile combat = CombatProfile.forItem(itemId);
 
@@ -91,7 +99,7 @@ public final class PassthroughBridgeClient {
 
         String payload = String.format(
                 Locale.ROOT,
-                "P|%d|%.6f|%.6f|%.6f|%.4f|%.4f|%s|%d|%s|%.2f|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%.3f|%d\n",
+                "P|%d|%.6f|%.6f|%.6f|%.4f|%.4f|%s|%d|%d|%s|%.2f|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%.3f|%d\n",
                 sequence++,
                 client.player.getX(),
                 client.player.getY(),
@@ -100,6 +108,7 @@ public final class PassthroughBridgeClient {
                 client.player.getXRot(),
                 sanitize(itemId),
                 attackSerial,
+                useSerial,
                 combat.kind,
                 combat.reachBlocks,
                 combat.power,
@@ -254,6 +263,10 @@ public final class PassthroughBridgeClient {
 
             if (path.equals("trident")) {
                 return new CombatProfile("trident", 4.5f, 5);
+            }
+
+            if (path.equals("tnt")) {
+                return new CombatProfile("explosive", 5.0f, 8);
             }
 
             if (path.equals("mace")) {

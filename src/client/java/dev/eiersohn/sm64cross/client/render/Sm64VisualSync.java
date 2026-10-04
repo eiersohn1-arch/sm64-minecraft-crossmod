@@ -1,17 +1,17 @@
 package dev.eiersohn.sm64cross.client.render;
 
+import dev.eiersohn.sm64cross.Sm64CrossMod;
 import dev.eiersohn.sm64cross.client.bridge.HostState;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * Universal-modder style PlayerSync: the host owns the pose and Minecraft
- * renders Steve at that pose.
+ * Universal-modder style PlayerSync: SM64 owns the authoritative player pose,
+ * while the real Minecraft player is kept in the empty overlay dimension so
+ * vanilla inventory/block/entity systems continue to work.
  */
 public final class Sm64VisualSync {
-    private static final double VOID_Y = 10_000.0;
-
     private Sm64VisualSync() {
     }
 
@@ -23,11 +23,9 @@ public final class Sm64VisualSync {
             return;
         }
 
-        // Host coordinates are already Minecraft-scale. A large constant
-        // vertical render origin keeps vanilla terrain away from the camera.
         player.setPos(
                 state.playerX(),
-                state.playerY() + VOID_Y,
+                renderY(state.playerY()),
                 state.playerZ()
         );
         player.setDeltaMovement(Vec3.ZERO);
@@ -50,6 +48,6 @@ public final class Sm64VisualSync {
     }
 
     public static double renderY(double hostY) {
-        return hostY + VOID_Y;
+        return hostY + Sm64CrossMod.OVERLAY_ORIGIN_Y;
     }
 }

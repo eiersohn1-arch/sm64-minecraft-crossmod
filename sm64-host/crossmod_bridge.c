@@ -37,7 +37,7 @@ extern struct CameraFOVStatus sFOVState;
 #define CROSSMOD_MAX_MELEE_REACH 520.0f
 #define CROSSMOD_ATTACK_HALF_ANGLE_COS 0.35f
 #define CROSSMOD_MAX_BLOCK_BOXES 4096
-#define CROSSMOD_TERRAIN_RADIUS 8
+#define CROSSMOD_TERRAIN_RADIUS 10
 #define CROSSMOD_TERRAIN_INTERVAL 2
 #define CROSSMOD_OVERLAY_ORIGIN_Y 128
 
@@ -1757,7 +1757,7 @@ static void crossmod_publish_terrain_proxy(
                     struct Surface *floor = NULL;
                     float floor_y = find_floor(
                             sample_x,
-                            m->pos[1] + 500.0f,
+                            m->pos[1] + 900.0f,
                             sample_z,
                             &floor
                     );
@@ -1766,7 +1766,7 @@ static void crossmod_publish_terrain_proxy(
                             || (floor->flags & SURFACE_FLAG_DYNAMIC)
                             || fabsf(
                                 floor_y - m->pos[1]
-                            ) > 700.0f) {
+                            ) > 1200.0f) {
                         continue;
                     }
 
@@ -1790,7 +1790,7 @@ static void crossmod_publish_terrain_proxy(
             struct Surface *center_floor = NULL;
             float floor_y = find_floor(
                     sample_x,
-                    m->pos[1] + 500.0f,
+                    m->pos[1] + 900.0f,
                     sample_z,
                     &center_floor
             );
@@ -1798,7 +1798,7 @@ static void crossmod_publish_terrain_proxy(
             if (center_floor == NULL
                     || (center_floor->flags
                         & SURFACE_FLAG_DYNAMIC)
-                    || fabsf(floor_y - m->pos[1]) > 700.0f) {
+                    || fabsf(floor_y - m->pos[1]) > 1200.0f) {
                 continue;
             }
 

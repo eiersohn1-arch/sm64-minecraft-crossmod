@@ -1,21 +1,19 @@
 package dev.eiersohn.sm64cross.client.bridge;
 
-import dev.eiersohn.sm64cross.client.Sm64Keys;
 import java.util.Locale;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.item.ItemStack;
 
 /**
- * Minecraft -> host input/events, equivalent to the event channel in the
- * universal-modder passthrough example.
+ * Hidden Minecraft guest -> visible SM64 host state.
+ *
+ * Keyboard/mouse input is intentionally NOT read here anymore. The visible
+ * SM64 window owns input. Minecraft only reports the currently selected item,
+ * hotbar slot and GUI state so SM64 can apply Minecraft item semantics.
  */
 public final class InputPublisher {
     private static long sequence;
-    private static long attackSerial;
-    private static long useSerial;
-    private static boolean previousAttack;
-    private static boolean previousUse;
 
     private InputPublisher() {
     }
@@ -24,24 +22,8 @@ public final class InputPublisher {
         if (!HostLink.connected()
                 || client.player == null
                 || client.level == null) {
-            previousAttack = false;
-            previousUse = false;
             return;
         }
-
-        boolean gameplay = client.screen == null;
-        boolean attack = gameplay && client.options.keyAttack.isDown();
-        boolean use = gameplay && client.options.keyUse.isDown();
-
-        if (attack && !previousAttack) {
-            attackSerial++;
-        }
-        if (use && !previousUse) {
-            useSerial++;
-        }
-
-        previousAttack = attack;
-        previousUse = use;
 
         ItemStack stack = client.player.getMainHandItem();
         String item = BuiltInRegistries.ITEM
@@ -50,39 +32,19 @@ public final class InputPublisher {
 
         CombatProfile combat = CombatProfile.forItem(item);
 
-        int keys = 0;
-        if (gameplay && client.options.keyUp.isDown()) keys |= 1;
-        if (gameplay && client.options.keyDown.isDown()) keys |= 2;
-        if (gameplay && client.options.keyLeft.isDown()) keys |= 4;
-        if (gameplay && client.options.keyRight.isDown()) keys |= 8;
-        if (gameplay && client.options.keyJump.isDown()) keys |= 16;
-        if (gameplay && client.player.isShiftKeyDown()) keys |= 32;
-        if (gameplay && client.player.isSprinting()) keys |= 64;
-        if (gameplay && Sm64Keys.START.isDown()) keys |= 128;
-        if (gameplay && Sm64Keys.CAMERA_UP.isDown()) keys |= 256;
-        if (gameplay && Sm64Keys.CAMERA_DOWN.isDown()) keys |= 512;
-        if (gameplay && Sm64Keys.CAMERA_LEFT.isDown()) keys |= 1024;
-        if (gameplay && Sm64Keys.CAMERA_RIGHT.isDown()) keys |= 2048;
-        if (gameplay && Sm64Keys.R_TRIGGER.isDown()) keys |= 4096;
-        if (gameplay && Sm64Keys.L_TRIGGER.isDown()) keys |= 8192;
-
         HostLink.broadcastMessage(String.format(
                 Locale.ROOT,
-                "{\"t\":\"input\",\"seq\":%d,\"item\":\"%s\","
-                        + "\"attack\":%d,\"use\":%d,\"weapon\":\"%s\","
-                        + "\"reach\":%.3f,\"power\":%d,"
-                        + "\"attackDown\":%d,\"useDown\":%d,\"keys\":%d,"
+                "{\"t\":\"guest\",\"seq\":%d,\"item\":\"%s\","
+                        + "\"slot\":%d,\"weapon\":\"%s\","
+                        + "\"reach\":%.3f,\"power\":%d,\"screen\":%d,"
                         + "\"health\":%.3f,\"food\":%d}",
                 sequence++,
                 escape(item),
-                attackSerial,
-                useSerial,
+                client.player.getInventory().selected,
                 combat.kind,
                 combat.reach,
                 combat.power,
-                attack ? 1 : 0,
-                use ? 1 : 0,
-                keys,
+                client.screen == null ? 0 : 1,
                 client.player.getHealth(),
                 client.player.getFoodData().getFoodLevel()
         ));

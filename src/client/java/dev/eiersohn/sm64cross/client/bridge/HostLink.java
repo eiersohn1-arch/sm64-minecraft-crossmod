@@ -94,6 +94,8 @@ public final class HostLink extends WebSocketServer {
             String type = json.get("t").getAsString();
             if ("cam".equals(type)) {
                 HostState.update(json);
+            } else {
+                GuestCommandHandler.handle(json);
             }
         } catch (RuntimeException exception) {
             Sm64CrossMod.LOGGER.warn(

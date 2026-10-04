@@ -35,6 +35,9 @@ extern struct CameraFOVStatus sFOVState;
 #define CROSSMOD_MAX_MELEE_REACH 520.0f
 #define CROSSMOD_ATTACK_HALF_ANGLE_COS 0.35f
 #define CROSSMOD_MAX_BLOCK_BOXES 4096
+#define CROSSMOD_TERRAIN_RADIUS 8
+#define CROSSMOD_TERRAIN_INTERVAL 10
+#define CROSSMOD_OVERLAY_ORIGIN_Y 128
 
 #define CROSSMOD_ENEMY_INTERACT_MASK ( \
     INTERACT_GRABBABLE | \
@@ -115,6 +118,8 @@ static int s_last_hit_count;
 static unsigned long s_host_frame;
 static struct CrossmodRenderPose s_render_pose;
 static int s_render_pose_valid;
+static unsigned int s_terrain_tick;
+static unsigned long s_terrain_sequence;
 
 void crossmod_bridge_init(void) {
     crossmod_ws_start();
@@ -1032,6 +1037,98 @@ static int crossmod_explode_near_mario(
     return hits;
 }
 
+static void crossmod_publish_terrain_proxy(
+        const struct MarioState *m
+) {
+    if (m == NULL || !crossmod_ws_connected()) {
+        return;
+    }
+
+    if (++s_terrain_tick < CROSSMOD_TERRAIN_INTERVAL) {
+        return;
+    }
+    s_terrain_tick = 0;
+
+    int center_x = (int) floorf(
+            m->pos[0] / CROSSMOD_SCALE
+    );
+    int center_z = (int) floorf(
+            -m->pos[2] / CROSSMOD_SCALE
+    );
+
+    char message[192];
+
+    snprintf(
+            message,
+            sizeof(message),
+            "{\"t\":\"terrain_begin\",\"seq\":%lu}",
+            ++s_terrain_sequence
+    );
+    crossmod_ws_send(message);
+
+    for (int dz = -CROSSMOD_TERRAIN_RADIUS;
+         dz <= CROSSMOD_TERRAIN_RADIUS;
+         ++dz) {
+        for (int dx = -CROSSMOD_TERRAIN_RADIUS;
+             dx <= CROSSMOD_TERRAIN_RADIUS;
+             ++dx) {
+            int block_x = center_x + dx;
+            int block_z = center_z + dz;
+
+            float sample_x =
+                    ((float) block_x + 0.5f)
+                    * CROSSMOD_SCALE;
+            float sample_z =
+                    -((float) block_z + 0.5f)
+                    * CROSSMOD_SCALE;
+
+            struct Surface *floor = NULL;
+            float floor_y = find_floor(
+                    sample_x,
+                    m->pos[1] + 500.0f,
+                    sample_z,
+                    &floor
+            );
+
+            if (floor == NULL
+                    || (floor->flags & SURFACE_FLAG_DYNAMIC)
+                    || fabsf(floor_y - m->pos[1]) > 700.0f) {
+                continue;
+            }
+
+            float minecraft_floor =
+                    floor_y / CROSSMOD_SCALE
+                    + (float) CROSSMOD_OVERLAY_ORIGIN_Y;
+
+            /*
+             * A barrier block's upper face is y+1. Choose the nearest
+             * integer top to approximate native sloped SM64 ground.
+             */
+            int block_y =
+                    (int) lroundf(minecraft_floor) - 1;
+
+            snprintf(
+                    message,
+                    sizeof(message),
+                    "{\"t\":\"terrain\","
+                    "\"x\":%d,\"y\":%d,\"z\":%d}",
+                    block_x,
+                    block_y,
+                    block_z
+            );
+            crossmod_ws_send(message);
+        }
+    }
+
+    snprintf(
+            message,
+            sizeof(message),
+            "{\"t\":\"terrain_end\",\"seq\":%lu}",
+            s_terrain_sequence
+    );
+    crossmod_ws_send(message);
+}
+
 static void crossmod_process_combat(struct MarioState *m) {
     if (s_guest.screen_open) {
         s_last_processed_attack_serial = s_attack_serial;
@@ -1335,6 +1432,7 @@ void crossmod_bridge_after_mario_update(struct MarioState *m) {
     m->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;
 
     crossmod_process_combat(m);
+    crossmod_publish_terrain_proxy(m);
 }
 
 

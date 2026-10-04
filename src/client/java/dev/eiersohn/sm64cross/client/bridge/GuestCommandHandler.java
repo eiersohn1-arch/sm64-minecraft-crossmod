@@ -48,6 +48,13 @@ public final class GuestCommandHandler {
             case "drop" -> dropItem(message);
             case "swap" -> swapOffhand();
             case "escape" -> closeScreen();
+            case "terrain_begin" -> Sm64TerrainProxy.begin();
+            case "terrain" -> Sm64TerrainProxy.cell(
+                    message.get("x").getAsInt(),
+                    message.get("y").getAsInt(),
+                    message.get("z").getAsInt()
+            );
+            case "terrain_end" -> Sm64TerrainProxy.end();
             default -> {
             }
         }

@@ -4,9 +4,9 @@
 
 Das ist **kein Minecraft-Block-Nachbau** von Super Mario 64.
 
-Super Mario 64 bleibt das echte Spiel und die echte 3D-Welt. Minecraft liefert den sichtbaren Spieler, Skin, Hotbar, Inventar und Minecraft-Items.
+Super Mario 64 bleibt das echte Spiel und die echte 3D-Welt. Minecraft läuft als Hintergrund-Engine für Steve, Skin, Hotbar, Inventar und Minecraft-Items.
 
-Die Architektur folgt jetzt konkret dem Passthrough-Beispiel aus:
+Die Architektur folgt konkret:
 
 ```
 git clone https://github.com/rehan-remade/universal-modder
@@ -16,7 +16,22 @@ Referenz:
 
 `examples/minecraft-gta5-passthrough`
 
-Der frühere Block-Prototyp liegt auf `legacy-block-prototype`. Der alte eigene Position/UDP-Passthrough ist ebenfalls nicht mehr die Architektur von `main`.
+Der frühere Block-Prototyp liegt auf `legacy-block-prototype`. Der vorherige sichtbare Minecraft/SM64-Overlay-Modus liegt auf `legacy-visible-minecraft-overlay`.
+
+## Ein sichtbares Spiel
+
+Im aktuellen `main` ist **SM64 das einzige sichtbare und fokussierte Spielfenster**.
+
+Ablauf:
+
+1. `start-test.bat` startet SM64 und Minecraft.
+2. Minecraft ist kurz sichtbar, damit eine Welt geöffnet werden kann.
+3. Sobald Spieler + Host verbunden sind, verschiebt die Mod das Minecraft-Fenster aus dem sichtbaren Desktop.
+4. Minecraft rendert dort weiter off-screen.
+5. SM64 liest Minecraft-Color/Depth/HUD aus Shared Memory und setzt alles in sein eigenes D3D11-Bild.
+6. Tastatur und Maus gehören danach direkt dem sichtbaren SM64-Fenster.
+
+Minecraft wird absichtlich nicht minimiert, sondern off-screen weitergerendert, damit die GPU-Ausgabe nicht durch einen minimierten/inaktiven Swapchain-Pfad ausgebremst wird. `pauseOnLostFocus` wird deaktiviert.
 
 ## Wer macht was?
 
@@ -40,7 +55,7 @@ Der originale SM64-PC-Port ist für das eigentliche Spiel zuständig:
 - Save-Daten und Progression
 - Musik und Sounds
 
-Mario bleibt intern als SM64-Spielkörper erhalten, wird bei aktiver Verbindung aber unsichtbar. Minecraft steuert den echten SM64-Controller; die Position wird nicht mehr künstlich aus Minecraft in Mario hineingeschrieben.
+Mario bleibt intern als SM64-Spielkörper erhalten, wird bei aktiver Verbindung aber unsichtbar. Seine echte SM64-Physik/Interaktion bleibt erhalten; Steve wird an dieser autoritativen Pose gerendert.
 
 ### Minecraft 1.21.1 + Fabric
 
@@ -52,23 +67,42 @@ Minecraft liefert:
 - Hotbar
 - Inventar
 - Minecraft-HUD
-- Waffen-/Item-Events
+- Item-/Waffen-Metadaten
 - Crossmod-Effekte für Nahkampf, Bogen/Crossbow, Trident und TNT
 
-## Universal-Modder-Passthrough
+Minecraft ist dabei ein echter Client, aber kein zweites sichtbares Spiel.
 
-Die beiden Prozesse benutzen dieselbe Grundaufteilung wie das Minecraft × GTA-V-Beispiel.
+## Eingabe im SM64-Fenster
+
+Die Eingabe wird unter Windows direkt vom sichtbaren SM64-Prozess gelesen:
+
+- WASD = Analogstick
+- Leertaste = A
+- Linksklick = B + Minecraft-Waffenangriff
+- Rechtsklick = B / Minecraft-Item benutzen
+- Shift = Z
+- P = Start/Pause
+- I/J/K/L = C-Up/C-Left/C-Down/C-Right
+- O = R
+- U = L
+- 1..9 = Minecraft-Hotbar-Slot
+- E = echtes Minecraft-Inventar öffnen/schließen
+
+Wenn ein Minecraft-GUI offen ist, pausiert die Bridge SM64-Bewegung/Combat und leitet Cursorposition sowie Mausklicks aus dem SM64-Fenster an das versteckte Minecraft-GUI weiter. Das GUI wird über den normalen Minecraft-HUD-Layer wieder im SM64-Fenster angezeigt.
+
+## Universal-Modder-Passthrough
 
 ### WebSocket
 
 `127.0.0.1:25599`
 
 - Minecraft ist der WebSocket-Server.
-- SM64 verbindet sich als Host-Client.
+- SM64 ist der Host-Client.
 - SM64 sendet Kamera, Spielerpose, Level, Kurs, Akt, Sterne, Coins, Leben, Health, Save-Flags und Missionstimer.
-- Minecraft sendet Eingabe, ausgewähltes Item und Angriffs-/Benutzen-Events.
+- Minecraft sendet den ausgewählten Slot, Itemtyp und Item-/GUI-Zustand.
+- SM64 sendet Hotbar-/Inventar-/Pointer-Befehle an den versteckten Minecraft-Client.
 
-Die Windows-WebSocket-Dateien `ws.h` und `ws.cpp` werden beim Setup **direkt aus dem geklonten Universal-Modder-Repo** übernommen.
+Die Windows-WebSocket-Dateien `ws.h` und `ws.cpp` werden beim Setup direkt aus dem geklonten Universal-Modder-Repo übernommen.
 
 ### Shared Memory
 
@@ -86,6 +120,14 @@ Format:
 - separates transparentes HUD/Overlay RGBA8
 - Kamera/FOV/near/far pro Frame
 
+### Asynchroner Minecraft-Readback
+
+Minecraft 1.21.1 nutzt OpenGL, SM64 D3D11.
+
+Der Frame-Export benutzt deshalb einen Ring aus OpenGL Pixel Buffer Objects und GPU-Fences. Color, Depth und HUD werden asynchron in PBOs geschrieben; nur bereits fertige GPU-Frames werden in `Local\MCPassthroughFrame` kopiert.
+
+Wenn alle Readback-Slots beschäftigt sind, wird lieber ein Minecraft-Frame übersprungen als der Minecraft-Renderthread anzuhalten. Die Kamera-Reprojection gleicht das Alter des letzten fertigen Frames aus.
+
 ### Depth-Compositor
 
 Der gepatchte SM64-D3D11-Renderer liest den neuesten fertigen Minecraft-Slot und mischt ihn direkt in das native SM64-Bild.
@@ -95,10 +137,10 @@ Dadurch soll:
 - SM64 die echte Hintergrundwelt bleiben;
 - Steve in der SM64-Welt stehen;
 - eine SM64-Wand Steve wirklich verdecken können;
-- Minecraft-Hotbar/HUD darüber sichtbar bleiben;
+- Minecraft-Hotbar/Inventar/HUD darüber sichtbar bleiben;
 - die normale Minecraft-Landschaft nicht das SM64-Bild ersetzen.
 
-Zusätzlich ist die 6-DoF-Depth-Reprojection aus dem Universal-Modder-Prinzip portiert: ein Minecraft-Frame wird anhand seiner gespeicherten Kamera auf die neuere SM64-Kamera zurückgerechnet, um sichtbares Hinterherziehen beim Drehen der Kamera zu reduzieren.
+Zusätzlich ist die 6-DoF-Depth-Reprojection aus dem Universal-Modder-Prinzip portiert: ein Minecraft-Frame wird anhand seiner gespeicherten Kamera auf die aktuelle SM64-Kamera zurückgerechnet.
 
 ## Whole-Game-Schutz
 
@@ -151,8 +193,8 @@ Das Setup:
 2. prüft die eigene ROM;
 3. klont/bereitet `sm64-port` vor;
 4. klont exakt `https://github.com/rehan-remade/universal-modder`;
-5. übernimmt die Passthrough-WebSocket-Quellen;
-6. patcht den nativen SM64-Renderer;
+5. übernimmt die Universal-Modder-WebSocket-Quellen;
+6. patcht den nativen SM64-D3D11-Renderer;
 7. baut Fabric;
 8. baut den SM64-Host.
 
@@ -162,23 +204,21 @@ Das Setup:
 start-test.bat
 ```
 
-Dann in Minecraft eine Welt öffnen.
-
-Der Test startet Minecraft zunächst mit 1280×720. Sobald WebSocket + Shared Memory aktiv sind, wird das SM64-Bild über die Minecraft-Spielfläche gelegt. Minecraft bleibt für Tastatur, Maus, Hotbar und Inventar zuständig.
-
-### SM64-Steuerung
-
-- WASD = Analogstick
-- Leertaste = A
-- Linksklick/Rechtsklick = B / Angriff / Benutzen
-- Shift = Z
-- P = Start/Pause
-- I/J/K/L = C-Up/C-Left/C-Down/C-Right
-- O = R
-- U = L
+Dann einmal in Minecraft eine Welt öffnen. Nach erfolgreicher Verbindung verschwindet das Minecraft-Fenster vom sichtbaren Desktop und SM64 übernimmt Fokus/Eingabe.
 
 ## Status
 
-Der Codepfad für Whole-Game-SM64, Universal-Modder-WebSocket, MCPT-Shared-Memory, D3D11-Depth-Compositing und Kamera-Reprojection ist implementiert und wird in CI kompiliert.
+Implementiert und in CI geprüft:
 
-Das ersetzt keinen echten Lauf auf der Zielmaschine: Kameraausrichtung, Depth-Thresholds, Fensterpositionierung und Item-Interaktionen müssen zusätzlich im laufenden SM64 + Minecraft geprüft werden.
+- Original-SM64 Whole-Game-Progression
+- 120-Star-/Mission-Schutz
+- Universal-Modder-WebSocket
+- `MCPT` Named Shared Memory
+- D3D11 Depth-Compositor
+- Kamera-Pose-Reprojection
+- transparenter Minecraft-HUD-Layer
+- sichtbarer SM64-Host + off-screen Minecraft-Guest
+- Host-seitige WASD/Maus/Hotbar-/Inventar-Eingabe
+- asynchroner OpenGL-PBO-Readback
+
+Ein CI-Build ersetzt keinen echten Lauf auf der Zielmaschine. Kameraausrichtung, Depth-Thresholds, GPU-Treiberverhalten und konkrete Minecraft-Item-Interaktionen müssen zusätzlich im laufenden SM64 + Minecraft geprüft werden.

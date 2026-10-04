@@ -33,11 +33,11 @@ jobs:
           grep -q "GRAPH_RENDER_INVISIBLE" sm64-host/crossmod_bridge.c
           grep -q "crossmod_process_combat" sm64-host/crossmod_bridge.c
           grep -q "gLakituState.curPos" sm64-host/crossmod_bridge.c
-          grep -q '"t":"guest"' src/client/java/dev/eiersohn/sm64cross/client/bridge/InputPublisher.java
+          grep -q "guest" src/client/java/dev/eiersohn/sm64cross/client/bridge/InputPublisher.java
           grep -q "BackgroundGuestWindow" src/client/java/dev/eiersohn/sm64cross/client/Sm64CrossClient.java
           grep -q "GetAsyncKeyState" sm64-host/crossmod_bridge.c
-          grep -q '"t":"slot"' sm64-host/crossmod_bridge.c
-          grep -q '"t":"pointer"' sm64-host/crossmod_bridge.c
+          grep -q "crossmod_send_slot" sm64-host/crossmod_bridge.c
+          grep -q "crossmod_send_pointer" sm64-host/crossmod_bridge.c
 
       - name: Patch a fresh upstream SM64 checkout
         run: |

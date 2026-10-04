@@ -86,6 +86,18 @@ struct CrossmodGuestState {
     int screen_open;
     float health;
     int food;
+    float player_x;
+    float player_y;
+    float player_z;
+    float velocity_x;
+    float velocity_y;
+    float velocity_z;
+    float yaw;
+    float pitch;
+    float body_yaw;
+    int on_ground;
+    int sneaking;
+    int sprinting;
 };
 
 static struct CrossmodBlockBox s_block_boxes[CROSSMOD_MAX_BLOCK_BOXES];
@@ -126,6 +138,14 @@ static int s_render_pose_valid;
 static unsigned int s_terrain_tick;
 static unsigned long s_terrain_sequence;
 static float s_pending_mc_health_delta;
+static int s_proxy_armed;
+static int s_proxy_level = -999;
+static int s_proxy_area = -999;
+static int s_proxy_course = -999;
+static int s_proxy_act = -999;
+static unsigned int s_proxy_wait_frames;
+static int s_host_client_width = 1280;
+static int s_host_client_height = 720;
 
 void crossmod_bridge_init(void) {
     crossmod_ws_start();
@@ -166,6 +186,149 @@ bool crossmod_bridge_get_render_pose(
     }
 
     *out_pose = s_render_pose;
+    return true;
+}
+
+bool crossmod_bridge_sync_minecraft_proxy(
+        struct MarioState *m
+) {
+    if (!s_has_guest
+            || m == NULL
+            || m->marioObj == NULL) {
+        return false;
+    }
+
+    int level = (int) gCurrLevelNum;
+    int area = (int) gCurrAreaIndex;
+    int course = (int) gCurrCourseNum;
+    int act = (int) gCurrActNum;
+
+    if (level != s_proxy_level
+            || area != s_proxy_area
+            || course != s_proxy_course
+            || act != s_proxy_act) {
+        s_proxy_level = level;
+        s_proxy_area = area;
+        s_proxy_course = course;
+        s_proxy_act = act;
+        s_proxy_armed = 0;
+        s_proxy_wait_frames = 0;
+    }
+
+    float target_x = s_guest.player_x * CROSSMOD_SCALE;
+    float target_y = s_guest.player_y * CROSSMOD_SCALE;
+    float target_z = -s_guest.player_z * CROSSMOD_SCALE;
+
+    if (!s_proxy_armed) {
+        float dx = target_x - m->pos[0];
+        float dy = target_y - m->pos[1];
+        float dz = target_z - m->pos[2];
+        float distance_sq = dx * dx + dy * dy + dz * dz;
+
+        /*
+         * On a fresh level/warp the host first publishes the original SM64
+         * spawn. Minecraft snaps there once; only then does authority flip to
+         * Minecraft. This avoids replacing a new course spawn with the hidden
+         * overlay world's old coordinates.
+         */
+        if (distance_sq <= 500.0f * 500.0f
+                || ++s_proxy_wait_frames > 120) {
+            s_proxy_armed = 1;
+        } else {
+            return false;
+        }
+    }
+
+    m->pos[0] = target_x;
+    m->pos[1] = target_y;
+    m->pos[2] = target_z;
+
+    m->vel[0] = s_guest.velocity_x * CROSSMOD_SCALE;
+    m->vel[1] = s_guest.velocity_y * CROSSMOD_SCALE;
+    m->vel[2] = -s_guest.velocity_z * CROSSMOD_SCALE;
+
+    m->slideVelX = m->vel[0];
+    m->slideVelZ = m->vel[2];
+    m->forwardVel = sqrtf(
+            m->vel[0] * m->vel[0]
+            + m->vel[2] * m->vel[2]
+    );
+
+    m->faceAngle[0] = 0;
+    m->faceAngle[1] = (s16) lroundf(
+            -s_guest.body_yaw * 65536.0f / 360.0f
+    );
+    m->faceAngle[2] = 0;
+
+    m->marioObj->oPosX = m->pos[0];
+    m->marioObj->oPosY = m->pos[1];
+    m->marioObj->oPosZ = m->pos[2];
+    m->marioObj->oFaceAngleYaw = m->faceAngle[1];
+    m->marioObj->oMoveAngleYaw = m->faceAngle[1];
+    vec3f_copy(m->marioObj->header.gfx.pos, m->pos);
+    m->marioObj->header.gfx.angle[1] = m->faceAngle[1];
+
+    m->wall = NULL;
+    m->floorHeight = find_floor(
+            m->pos[0],
+            m->pos[1] + 80.0f,
+            m->pos[2],
+            &m->floor
+    );
+
+    if (m->floor != NULL) {
+        m->floorAngle = atan2s(
+                m->floor->normal.z,
+                m->floor->normal.x
+        );
+    }
+
+    m->ceilHeight = vec3f_find_ceil(
+            &m->pos[0],
+            m->floorHeight,
+            &m->ceil
+    );
+    m->waterLevel = find_water_level(
+            m->pos[0],
+            m->pos[2]
+    );
+
+    /*
+     * Keep only semantic inputs needed by original SM64 interactions. No
+     * analog/intended movement is ever fed back into Mario locomotion.
+     */
+    m->input = 0;
+    m->intendedMag = 0.0f;
+    m->intendedYaw = m->faceAngle[1];
+
+    if (!s_guest.on_ground
+            || (m->floor != NULL
+                && m->pos[1] > m->floorHeight + 100.0f)) {
+        m->input |= INPUT_OFF_FLOOR;
+    }
+    if (m->pos[1] < m->waterLevel - 10) {
+        m->input |= INPUT_IN_WATER;
+    }
+
+    if (m->controller != NULL) {
+        if (m->controller->buttonPressed & A_BUTTON) {
+            m->input |= INPUT_A_PRESSED;
+        }
+        if (m->controller->buttonDown & A_BUTTON) {
+            m->input |= INPUT_A_DOWN;
+        }
+        if (m->controller->buttonPressed & B_BUTTON) {
+            m->input |= INPUT_B_PRESSED;
+        }
+        if (m->controller->buttonDown & Z_TRIG) {
+            m->input |= INPUT_Z_DOWN;
+        }
+        if (m->controller->buttonPressed & Z_TRIG) {
+            m->input |= INPUT_Z_PRESSED;
+        }
+    }
+
+    m->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;
     return true;
 }
 
@@ -288,7 +451,11 @@ static int parse_guest_packet(
             "{\"t\":\"guest\",\"seq\":%lu,\"item\":\"%95[^\"]\","
             "\"slot\":%d,\"weapon\":\"%23[^\"]\","
             "\"reach\":%f,\"power\":%d,\"screen\":%d,"
-            "\"health\":%f,\"food\":%d}",
+            "\"health\":%f,\"food\":%d,"
+            "\"pos\":[%f,%f,%f],"
+            "\"vel\":[%f,%f,%f],"
+            "\"yaw\":%f,\"pitch\":%f,\"body\":%f,"
+            "\"ground\":%d,\"sneak\":%d,\"sprint\":%d}",
             &guest->sequence,
             guest->held_item,
             &guest->selected_slot,
@@ -297,10 +464,22 @@ static int parse_guest_packet(
             &guest->power,
             &guest->screen_open,
             &guest->health,
-            &guest->food
+            &guest->food,
+            &guest->player_x,
+            &guest->player_y,
+            &guest->player_z,
+            &guest->velocity_x,
+            &guest->velocity_y,
+            &guest->velocity_z,
+            &guest->yaw,
+            &guest->pitch,
+            &guest->body_yaw,
+            &guest->on_ground,
+            &guest->sneaking,
+            &guest->sprinting
     );
 
-    return count == 9;
+    return count == 21;
 }
 
 #ifdef _WIN32
@@ -473,6 +652,42 @@ static void crossmod_send_gui_keyboard(void) {
         );
         crossmod_ws_send(message);
     }
+}
+
+static void crossmod_send_movement_input(void) {
+    if (!crossmod_ws_connected() || !s_has_guest) {
+        return;
+    }
+
+    int enabled = !s_guest.screen_open;
+    int forward = enabled && (s_host_keys & 1u);
+    int back = enabled && (s_host_keys & 2u);
+    int left = enabled && (s_host_keys & 4u);
+    int right = enabled && (s_host_keys & 8u);
+    int jump = enabled && (s_host_keys & 16u);
+    int sneak = enabled && (s_host_keys & 32u);
+    int sprint = enabled && (s_host_keys & 64u);
+
+    char message[320];
+    snprintf(
+            message,
+            sizeof(message),
+            "{\"t\":\"move\","
+            "\"f\":%d,\"b\":%d,\"l\":%d,\"r\":%d,"
+            "\"jump\":%d,\"sneak\":%d,\"sprint\":%d,"
+            "\"yaw\":%.4f,\"pitch\":%.4f}",
+            forward ? 1 : 0,
+            back ? 1 : 0,
+            left ? 1 : 0,
+            right ? 1 : 0,
+            jump ? 1 : 0,
+            sneak ? 1 : 0,
+            sprint ? 1 : 0,
+            s_view_yaw,
+            s_view_pitch
+    );
+
+    crossmod_ws_send(message);
 }
 
 static void crossmod_send_pointer(void) {
@@ -760,6 +975,18 @@ static void crossmod_capture_host_input(void) {
         return;
     }
 
+    RECT host_rect;
+    HWND host_window = GetForegroundWindow();
+    if (host_window != NULL
+            && GetClientRect(host_window, &host_rect)) {
+        int width = host_rect.right - host_rect.left;
+        int height = host_rect.bottom - host_rect.top;
+        if (width > 0 && height > 0) {
+            s_host_client_width = width;
+            s_host_client_height = height;
+        }
+    }
+
     unsigned int keys = 0;
 
     if (crossmod_key_down('W')) keys |= 1u;
@@ -870,6 +1097,8 @@ static void crossmod_capture_host_input(void) {
         crossmod_send_gui_keyboard();
     }
 
+    crossmod_send_movement_input();
+
     if (!s_guest.screen_open) {
         crossmod_send_gameplay_action();
     }
@@ -890,6 +1119,8 @@ void crossmod_bridge_poll(void) {
 
     if (!crossmod_ws_connected()) {
         s_has_guest = 0;
+        s_proxy_armed = 0;
+        s_proxy_wait_frames = 0;
         crossmod_capture_host_input();
         return;
     }
@@ -960,52 +1191,39 @@ void crossmod_bridge_apply_controller(struct Controller *controller) {
         return;
     }
 
-    if (s_guest.screen_open) {
-        controller->rawStickX = 0;
-        controller->rawStickY = 0;
-        controller->buttonPressed = 0;
-        controller->buttonDown = 0;
-        crossmod_adjust_stick(controller);
-        return;
-    }
-
-    int x = ((s_host_keys & 8u) ? 1 : 0)
-            - ((s_host_keys & 4u) ? 1 : 0);
-    int y = ((s_host_keys & 1u) ? 1 : 0)
-            - ((s_host_keys & 2u) ? 1 : 0);
-
-    controller->rawStickX = (s8) (x * 127);
-    controller->rawStickY = (s8) (y * 127);
+    /*
+     * Mario locomotion is disabled. Keep only a tiny native-button channel
+     * for original mission interactions/cutscenes; all walking, jumping,
+     * sprinting, crouching and gravity are vanilla Minecraft.
+     */
+    controller->rawStickX = 0;
+    controller->rawStickY = 0;
+    controller->stickX = 0.0f;
+    controller->stickY = 0.0f;
+    controller->stickMag = 0.0f;
 
     u16 buttons = 0;
 
-    if (s_host_keys & 16u) buttons |= A_BUTTON;
-    /*
-     * Mouse buttons are Minecraft actions first. Right-click placement/use
-     * must never make the hidden Mario punch at the same time.
-     *
-     * Empty-hand left-click keeps native B behavior for classic SM64 grabs,
-     * and V is an explicit native-B fallback for special original mechanics.
-     */
-    if ((s_host_keys & 16384u)
-            || (s_attack_down
-                && strcmp(s_guest.weapon_kind, "hand") == 0)) {
-        buttons |= B_BUTTON;
+    if (!s_guest.screen_open) {
+        if (s_host_keys & 128u) buttons |= START_BUTTON;
+
+        /*
+         * Right click is the natural "use" input. Feed it to native SM64
+         * interactions as B as well, while the Minecraft guest independently
+         * handles block/item use. V remains an explicit native fallback.
+         */
+        if (s_use_down || (s_host_keys & 16384u)) {
+            buttons |= B_BUTTON;
+        }
+
+        if (s_host_keys & 32u) {
+            buttons |= Z_TRIG;
+        }
     }
-    if (s_host_keys & 32u) buttons |= Z_TRIG;
-    if (s_host_keys & 128u) buttons |= START_BUTTON;
-    if (s_host_keys & 256u) buttons |= U_CBUTTONS;
-    if (s_host_keys & 512u) buttons |= D_CBUTTONS;
-    if (s_host_keys & 1024u) buttons |= L_CBUTTONS;
-    if (s_host_keys & 2048u) buttons |= R_CBUTTONS;
-    if (s_host_keys & 4096u) buttons |= R_TRIG;
-    if (s_host_keys & 8192u) buttons |= L_TRIG;
 
     controller->buttonPressed =
             buttons & (buttons ^ controller->buttonDown);
     controller->buttonDown = buttons;
-
-    crossmod_adjust_stick(controller);
 }
 
 static int crossmod_is_attackable_object(const struct Object *obj) {
@@ -1804,6 +2022,7 @@ static void send_state(const struct MarioState *m) {
             "\"p\":[%.6f,%.6f,%.6f],"
             "\"r\":[%.4f,%.4f,0.0],"
             "\"fov\":%.3f,\"view\":%d,"
+            "\"win\":[%d,%d],"
             "\"pl\":[%.6f,%.6f,%.6f],"
             "\"h\":%.4f,\"action\":%u,"
             "\"sneak\":%d,\"sprint\":%d,"
@@ -1820,6 +2039,8 @@ static void send_state(const struct MarioState *m) {
             pitch,
             (double) sFOVState.fov,
             s_view_mode,
+            s_host_client_width,
+            s_host_client_height,
             m->pos[0] / CROSSMOD_SCALE,
             m->pos[1] / CROSSMOD_SCALE,
             -m->pos[2] / CROSSMOD_SCALE,
@@ -1852,8 +2073,8 @@ void crossmod_bridge_after_mario_update(struct MarioState *m) {
     }
 
     /*
-     * SM64 remains the real game. Mario is its native collision/mission body,
-     * while Minecraft renders Steve/skin/items at the authoritative pose.
+     * Minecraft owns locomotion. Mario is only an invisible native
+     * mission/interaction proxy at Minecraft's authoritative pose.
      */
     m->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;
 

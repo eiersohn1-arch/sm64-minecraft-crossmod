@@ -124,6 +124,7 @@ static struct CrossmodRenderPose s_render_pose;
 static int s_render_pose_valid;
 static unsigned int s_terrain_tick;
 static unsigned long s_terrain_sequence;
+static float s_pending_mc_health_delta;
 
 void crossmod_bridge_init(void) {
     crossmod_ws_start();
@@ -220,6 +221,36 @@ static void crossmod_remove_block_box(const char *text) {
             crossmod_find_block_box(key);
     if (box != NULL) {
         memset(box, 0, sizeof(*box));
+    }
+}
+
+static void crossmod_receive_minecraft_health(
+        const char *text
+) {
+    float delta = 0.0f;
+
+    if (sscanf(
+            text,
+            "{\"t\":\"mc_health\",\"delta\":%f}",
+            &delta
+        ) != 1) {
+        return;
+    }
+
+    if (delta > 20.0f) {
+        delta = 20.0f;
+    }
+    if (delta < -20.0f) {
+        delta = -20.0f;
+    }
+
+    s_pending_mc_health_delta += delta;
+
+    if (s_pending_mc_health_delta > 20.0f) {
+        s_pending_mc_health_delta = 20.0f;
+    }
+    if (s_pending_mc_health_delta < -20.0f) {
+        s_pending_mc_health_delta = -20.0f;
     }
 }
 
@@ -836,6 +867,11 @@ void crossmod_bridge_poll(void) {
     }
 
     while (crossmod_ws_poll_message(buffer, sizeof(buffer))) {
+        if (strncmp(buffer, "{\"t\":\"mc_health\"", 16) == 0) {
+            crossmod_receive_minecraft_health(buffer);
+            continue;
+        }
+
         if (strncmp(buffer, "{\"t\":\"box\"", 10) == 0) {
             crossmod_update_block_box(buffer);
             continue;
@@ -1259,6 +1295,39 @@ static void crossmod_publish_terrain_proxy(
     crossmod_ws_send(message);
 }
 
+static void crossmod_apply_minecraft_health(
+        struct MarioState *m
+) {
+    float delta = s_pending_mc_health_delta;
+    s_pending_mc_health_delta = 0.0f;
+
+    if (m == NULL || fabsf(delta) < 0.05f) {
+        return;
+    }
+
+    /*
+     * Live SM64 health spans about 0x800 units. update_mario_health changes
+     * 0x40 per hurt/heal-counter tick, while Minecraft's default bar has 20
+     * health points: 0x800 / 0x40 / 20 = 1.6 counter ticks per MC health.
+     *
+     * Minecraft has already applied armor, enchantments, effects and the
+     * actual DamageSource before we receive the delta.
+     */
+    int counter =
+            (int) ceilf(fabsf(delta) * 1.6f);
+    if (counter < 1) {
+        counter = 1;
+    }
+
+    if (delta < 0.0f) {
+        int hurt = (int) m->hurtCounter + counter;
+        m->hurtCounter = (u8) (hurt > 255 ? 255 : hurt);
+    } else {
+        int heal = (int) m->healCounter + counter;
+        m->healCounter = (u8) (heal > 255 ? 255 : heal);
+    }
+}
+
 static void crossmod_process_combat(struct MarioState *m) {
     if (s_guest.screen_open) {
         s_last_processed_attack_serial = s_attack_serial;
@@ -1561,6 +1630,7 @@ void crossmod_bridge_after_mario_update(struct MarioState *m) {
      */
     m->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;
 
+    crossmod_apply_minecraft_health(m);
     crossmod_process_combat(m);
     crossmod_publish_terrain_proxy(m);
 }

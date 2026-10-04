@@ -74,15 +74,6 @@ public final class Sm64VisualSync {
                 0.45f
         );
 
-        float healthFraction = Math.max(
-                0.0f,
-                Math.min(1.0f, (state.health() >> 8) / 8.0f)
-        );
-        player.setHealth(
-                Math.max(0.01f, player.getMaxHealth() * healthFraction)
-        );
-        player.getFoodData().setFoodLevel(20);
-        player.getFoodData().setSaturation(20.0f);
     }
 
     public static double renderY(double hostY) {

@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0"
 
 echo ======================================================
-echo  SM64 x Minecraft Crossmod - Test starten
+echo  SM64 x Minecraft Crossmod - One Window Test
 echo ======================================================
 echo.
 
@@ -11,7 +11,6 @@ set "SM64_EXE=%CD%\vendor\sm64-port\build\us_pc\sm64.us.exe"
 
 if not exist "%SM64_EXE%" (
   echo FEHLER: Der SM64-Host wurde noch nicht gebaut.
-  echo.
   echo Fuehre zuerst aus:
   echo   setup-windows.bat
   echo.
@@ -21,36 +20,38 @@ if not exist "%SM64_EXE%" (
 
 if not exist "gradlew.bat" (
   echo FEHLER: gradlew.bat fehlt.
-  echo Starte diese Datei direkt aus dem Projektordner.
   pause
   exit /b 1
 )
 
-rem Frame transport now follows universal-modder:
-rem localhost WebSocket + named shared memory Local\MCPassthroughFrame.
-
-echo [1/2] Starte den nativen Super-Mario-64-Host...
-start "SM64 Crossmod Host" "%SM64_EXE%"
+echo [1/2] Starte den sichtbaren SM64-Host...
+start "SM64 x Minecraft" "%SM64_EXE%"
 
 echo.
-echo [2/2] Starte Minecraft 1.21.1 mit Fabric...
+echo [2/2] Starte Minecraft als Hintergrund-Engine...
 echo.
-echo UNIVERSAL-MODDER PASSTHROUGH:
-echo   1. Oeffne in Minecraft eine Welt.
-echo   2. Sobald die Bridge verbunden ist, legt sich das SM64-Bild
-echo      automatisch ueber die Minecraft-Spielflaeche.
-echo   3. Minecraft bleibt darunter fokussiert. Tastatur, Maus,
-echo      Hotbar und Inventar funktionieren deshalb weiterhin normal.
-echo   4. Steve/Items werden mit SM64-Tiefe zusammengesetzt:
-echo      eine SM64-Wand kann Steve wirklich verdecken.
+echo WICHTIG:
+echo   - Minecraft erscheint zuerst noch normal.
+echo   - Oeffne einmal deine Minecraft-Welt.
+echo   - Sobald Spieler + SM64 verbunden sind, verschiebt die Mod das
+echo     Minecraft-Fenster automatisch aus dem sichtbaren Desktop.
+echo   - Danach bleibt nur SM64 sichtbar.
+echo   - Minecraft rendert Steve, Skin, Hotbar, Inventar und Items weiter
+echo     unsichtbar im Hintergrund.
 echo.
-echo SM64-TASTEN:
-echo   WASD = laufen     LEERTASTE = A/Sprung
-echo   Linksklick/Rechtsklick = B/Angriff/Benutzen
-echo   SHIFT = Z         P = Start/Pause
-echo   I J K L = C-Tasten, O = R, U = L
+echo EINGABE IM SICHTBAREN SM64-FENSTER:
+echo   WASD        = laufen
+echo   LEERTASTE   = A / springen
+echo   Linksklick  = B + Minecraft-Waffenangriff
+echo   Rechtsklick = B / Item benutzen
+echo   SHIFT       = Z
+echo   P           = Start / Pause
+echo   I J K L     = C-Tasten
+echo   O / U       = R / L
+echo   1-9         = Minecraft-Hotbar-Slot
+echo   E           = Minecraft-Inventar im SM64-Fenster
 echo.
-echo Zum ersten Test wird Minecraft in 1280x720 gestartet.
+echo Minecraft wird fuer den Frame-Export mit 1280x720 gestartet.
 echo.
 
 call gradlew.bat runClient --args="--width 1280 --height 720"

@@ -1186,8 +1186,11 @@ static void mc_overlay_render(void) {
         return;
     }
 
-    mc_overlay_sync_window();
-
+    /*
+     * Single-host-window mode: SM64 stays the normal visible/focused window.
+     * Minecraft is moved off-screen by the guest mod and only contributes
+     * colour/depth/HUD through shared memory.
+     */
     D3D11_MAPPED_SUBRESOURCE mapped_cb = {};
     if (FAILED(d3d.context->Map(
             mc_overlay.constant_buffer.Get(),

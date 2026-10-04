@@ -391,10 +391,20 @@ def install_bridge() -> None:
     makefile_text = makefile.read_text(encoding="utf-8")
     old_link = "  PLATFORM_LDFLAGS := -lm -lxinput9_1_0 -lole32 -no-pie -mwindows"
     previous_link = "  PLATFORM_LDFLAGS := -lm -lxinput9_1_0 -lole32 -lws2_32 -no-pie -mwindows"
-    websocket_link = "  PLATFORM_LDFLAGS := -lm -lxinput9_1_0 -lole32 -lws2_32 -pthread -no-pie -mwindows"
+    previous_websocket_link = "  PLATFORM_LDFLAGS := -lm -lxinput9_1_0 -lole32 -lws2_32 -pthread -no-pie -mwindows"
+    websocket_link = "  PLATFORM_LDFLAGS := -lm -lxinput9_1_0 -lole32 -lws2_32 -luser32 -pthread -no-pie -mwindows"
 
     if websocket_link not in makefile_text:
-        if previous_link in makefile_text:
+        if previous_websocket_link in makefile_text:
+            makefile.write_text(
+                makefile_text.replace(
+                    previous_websocket_link,
+                    websocket_link,
+                    1,
+                ),
+                encoding="utf-8",
+            )
+        elif previous_link in makefile_text:
             makefile.write_text(
                 makefile_text.replace(previous_link, websocket_link, 1),
                 encoding="utf-8",

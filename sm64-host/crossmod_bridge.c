@@ -1669,7 +1669,7 @@ void crossmod_bridge_override_camera(struct Camera *camera) {
         Vec3f pos;
 
         focus[0] = gMarioState->pos[0];
-        focus[1] = gMarioState->pos[1] + 120.0f;
+        focus[1] = gMarioState->pos[1] + 162.0f;
         focus[2] = gMarioState->pos[2];
 
         if (s_view_mode == 0) {
@@ -1678,7 +1678,7 @@ void crossmod_bridge_override_camera(struct Camera *camera) {
              * height and the Minecraft hand/item is composited screen-space.
              */
             pos[0] = gMarioState->pos[0];
-            pos[1] = gMarioState->pos[1] + 150.0f;
+            pos[1] = gMarioState->pos[1] + 162.0f;
             pos[2] = gMarioState->pos[2];
 
             focus[0] = pos[0] + forward_x * 1000.0f;
@@ -1688,18 +1688,18 @@ void crossmod_bridge_override_camera(struct Camera *camera) {
             sFOVState.fov = 70.0f;
         } else if (s_view_mode == 2) {
             /* Minecraft third-person front. */
-            pos[0] = focus[0] + forward_x * 520.0f;
-            pos[1] = focus[1] + forward_y * 520.0f;
-            pos[2] = focus[2] + forward_z * 520.0f;
+            pos[0] = focus[0] + forward_x * 400.0f;
+            pos[1] = focus[1] + forward_y * 400.0f;
+            pos[2] = focus[2] + forward_z * 400.0f;
 
-            sFOVState.fov = 60.0f;
+            sFOVState.fov = 70.0f;
         } else {
             /* Minecraft third-person back. */
-            pos[0] = focus[0] - forward_x * 650.0f;
-            pos[1] = focus[1] - forward_y * 650.0f;
-            pos[2] = focus[2] - forward_z * 650.0f;
+            pos[0] = focus[0] - forward_x * 400.0f;
+            pos[1] = focus[1] - forward_y * 400.0f;
+            pos[2] = focus[2] - forward_z * 400.0f;
 
-            sFOVState.fov = 60.0f;
+            sFOVState.fov = 70.0f;
         }
 
         if (s_view_mode != 0) {

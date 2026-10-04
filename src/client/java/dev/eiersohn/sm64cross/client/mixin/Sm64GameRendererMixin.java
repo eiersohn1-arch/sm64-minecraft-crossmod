@@ -25,6 +25,28 @@ abstract class Sm64GameRendererMixin {
         Sm64FrameExporter.captureWorld();
     }
 
+    @Inject(
+            method = "renderLevel",
+            at = @At("TAIL")
+    )
+    private void sm64cross$captureThirdPersonWorld(
+            CallbackInfo ci
+    ) {
+        HostState.State state = HostState.latest();
+
+        /*
+         * In first person we capture immediately before vanilla draws the
+         * ItemInHandRenderer, so the arm/item stays in the screen-space layer.
+         *
+         * In third person vanilla does not execute that hand-render call at
+         * all. Capture at renderLevel TAIL instead so the complete Steve model,
+         * armor, cape and held items are exported as 3D world geometry.
+         */
+        if (state.connected() && state.viewMode() != 0) {
+            Sm64FrameExporter.captureWorld();
+        }
+    }
+
     @Inject(method = "render", at = @At("TAIL"))
     private void sm64cross$captureOverlay(
             DeltaTracker deltaTracker,

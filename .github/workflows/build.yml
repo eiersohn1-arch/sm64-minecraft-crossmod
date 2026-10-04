@@ -35,6 +35,9 @@ jobs:
           grep -q "gLakituState.curPos" sm64-host/crossmod_bridge.c
           grep -q "guest" src/client/java/dev/eiersohn/sm64cross/client/bridge/InputPublisher.java
           grep -q "BackgroundGuestWindow" src/client/java/dev/eiersohn/sm64cross/client/Sm64CrossClient.java
+          grep -q "Sm64PerspectiveSync" src/client/java/dev/eiersohn/sm64cross/client/Sm64CrossClient.java
+          grep -q "THIRD_PERSON_FRONT" src/client/java/dev/eiersohn/sm64cross/client/render/Sm64PerspectiveSync.java
+          grep -q "captureThirdPersonWorld" src/client/java/dev/eiersohn/sm64cross/client/mixin/Sm64GameRendererMixin.java
           grep -q "GetAsyncKeyState" sm64-host/crossmod_bridge.c
           grep -q "crossmod_send_slot" sm64-host/crossmod_bridge.c
           grep -q "crossmod_send_pointer" sm64-host/crossmod_bridge.c

@@ -249,11 +249,21 @@ def install_bridge() -> None:
         '#include "engine/surface_collision.h"\n#include "pc/crossmod_bridge.h"\n',
     )
 
-    patch_once(
-        gfx_sdl2,
-        '#include "gfx_sdl.h"\n',
-        '#include "gfx_sdl.h"\n#include "pc/crossmod_bridge.h"\n',
-    )
+    gfx_sdl2_text = gfx_sdl2.read_text(encoding="utf-8")
+    if '#include "pc/crossmod_bridge.h"' not in gfx_sdl2_text:
+        include_marker = '#include "gfx_window_manager_api.h"\n'
+        if include_marker not in gfx_sdl2_text:
+            raise RuntimeError(
+                f"Could not patch {gfx_sdl2}: window-manager include marker not found."
+            )
+        gfx_sdl2.write_text(
+            gfx_sdl2_text.replace(
+                include_marker,
+                include_marker + '#include "pc/crossmod_bridge.h"\n',
+                1,
+            ),
+            encoding="utf-8",
+        )
 
     patch_once(
         gfx_sdl2,

@@ -23,6 +23,7 @@ public final class ServerPlayerSync {
     private static double lockY;
     private static double lockZ;
     private static boolean wasTerrainReady;
+    private static int terrainGraceTicks;
 
     private ServerPlayerSync() {
     }
@@ -34,6 +35,7 @@ public final class ServerPlayerSync {
             lastAppliedHealth = Float.NaN;
             wasConnected = false;
             wasTerrainReady = false;
+            terrainGraceTicks = 0;
             return;
         }
 
@@ -61,11 +63,18 @@ public final class ServerPlayerSync {
             lastCourse = state.course();
             lastAct = state.act();
             wasTerrainReady = false;
+            terrainGraceTicks = 10;
         }
         wasConnected = true;
 
         final boolean doSpawnSync = contextChanged;
         final boolean terrainReady = Sm64TerrainProxy.isReady();
+        if (terrainReady) {
+            terrainGraceTicks = 10;
+        } else if (terrainGraceTicks > 0) {
+            terrainGraceTicks--;
+        }
+        final boolean collisionSafe = terrainReady || terrainGraceTicks > 0;
         final boolean releaseGravity = terrainReady && !wasTerrainReady;
         final double spawnX = lockX;
         final double spawnY = lockY;
@@ -86,7 +95,7 @@ public final class ServerPlayerSync {
                 return;
             }
 
-            if (doSpawnSync || !terrainReady) {
+            if (doSpawnSync || !collisionSafe) {
                 player.teleportTo(
                         player.serverLevel(),
                         spawnX,

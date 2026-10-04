@@ -1,4 +1,5 @@
 #include "crossmod_bridge.h"
+#include "sm64.h"
 
 #include <math.h>
 #include <stdio.h>

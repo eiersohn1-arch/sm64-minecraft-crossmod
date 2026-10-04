@@ -55,6 +55,37 @@ def clone_if_missing(url: str, target: pathlib.Path) -> None:
     run(["git", "clone", "--depth", "1", url, str(target)])
 
 
+def refresh_universal_modder() -> None:
+    """Keep the generated vendor checkout on Universal Modder's current main."""
+    if not (UNIVERSAL_MODDER / ".git").is_dir():
+        raise RuntimeError("Universal Modder checkout is missing.")
+
+    run(
+        ["git", "fetch", "--depth", "1", "origin", "main"],
+        cwd=UNIVERSAL_MODDER,
+    )
+    run(
+        ["git", "reset", "--hard", "FETCH_HEAD"],
+        cwd=UNIVERSAL_MODDER,
+    )
+
+    required = [
+        "skills/mashup-mods/SKILL.md",
+        "examples/minecraft-gta5-passthrough/README.md",
+        "examples/minecraft-gta5-passthrough/gta/src/ws.h",
+        "examples/minecraft-gta5-passthrough/gta/src/ws.cpp",
+    ]
+    missing = [
+        rel for rel in required
+        if not (UNIVERSAL_MODDER / rel).is_file()
+    ]
+    if missing:
+        raise RuntimeError(
+            "Universal Modder passthrough reference is incomplete: "
+            + ", ".join(missing)
+        )
+
+
 def patch_once(path: pathlib.Path, old: str, new: str) -> None:
     text = path.read_text(encoding="utf-8")
 
@@ -691,6 +722,7 @@ def main() -> int:
             "https://github.com/rehan-remade/universal-modder",
             UNIVERSAL_MODDER,
         )
+        refresh_universal_modder()
 
         shutil.copy2(ROM, SM64_PORT / "baserom.us.z64")
         patch_sm64_port_toolchain()

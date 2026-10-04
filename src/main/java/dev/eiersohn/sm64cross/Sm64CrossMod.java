@@ -94,10 +94,11 @@ public final class Sm64CrossMod implements ModInitializer {
                 }
 
                 /*
-                 * Minecraft is the locomotion authority. Gravity, jumping,
-                 * sprinting, crouching and collision must remain vanilla.
+                 * Gravity is released by ServerPlayerSync only after a fresh
+                 * SM64 collision snapshot has been installed. Do not force it
+                 * on here: doing so creates a short spawn/warp window where
+                 * the player can fall through the still-empty overlay world.
                  */
-                player.setNoGravity(false);
             }
         });
     }

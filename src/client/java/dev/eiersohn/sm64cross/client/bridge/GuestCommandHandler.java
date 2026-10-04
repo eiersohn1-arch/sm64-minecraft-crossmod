@@ -7,6 +7,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.BlockHitResult;
@@ -44,6 +45,9 @@ public final class GuestCommandHandler {
             case "inventory" -> toggleInventory();
             case "pointer" -> pointer(message);
             case "action" -> gameplayAction(message);
+            case "drop" -> dropItem(message);
+            case "swap" -> swapOffhand();
+            case "escape" -> closeScreen();
             default -> {
             }
         }
@@ -170,6 +174,48 @@ public final class GuestCommandHandler {
             lastRightSerial = rightSerial;
             lastGuiX = guiX;
             lastGuiY = guiY;
+        });
+    }
+
+    private static void dropItem(JsonObject message) {
+        Minecraft client = Minecraft.getInstance();
+        final boolean stack =
+                message.has("stack")
+                && message.get("stack").getAsInt() != 0;
+
+        client.execute(() -> {
+            if (client.player != null
+                    && client.screen == null
+                    && !client.player.isSpectator()) {
+                client.player.drop(stack);
+            }
+        });
+    }
+
+    private static void swapOffhand() {
+        Minecraft client = Minecraft.getInstance();
+        client.execute(() -> {
+            if (client.player == null || client.screen != null) {
+                return;
+            }
+
+            client.player.connection.send(
+                    new ServerboundPlayerActionPacket(
+                            ServerboundPlayerActionPacket.Action
+                                    .SWAP_ITEM_WITH_OFFHAND,
+                            BlockPos.ZERO,
+                            Direction.DOWN
+                    )
+            );
+        });
+    }
+
+    private static void closeScreen() {
+        Minecraft client = Minecraft.getInstance();
+        client.execute(() -> {
+            if (client.screen != null) {
+                client.setScreen(null);
+            }
         });
     }
 

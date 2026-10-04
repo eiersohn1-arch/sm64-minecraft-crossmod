@@ -99,6 +99,9 @@ static int s_prev_use_down;
 static unsigned int s_prev_slot_mask;
 static int s_prev_inventory_down;
 static int s_prev_view_down;
+static int s_prev_drop_down;
+static int s_prev_swap_down;
+static int s_prev_escape_down;
 static int s_mouse_ready;
 static int s_view_initialized;
 static int s_view_mode = 1; /* 0=first, 1=third-back, 2=third-front */
@@ -270,6 +273,28 @@ static void crossmod_send_slot(int slot) {
 
 static void crossmod_send_inventory_toggle(void) {
     crossmod_ws_send("{\"t\":\"inventory\"}");
+}
+
+static void crossmod_send_simple_command(const char *type) {
+    char message[64];
+    snprintf(
+            message,
+            sizeof(message),
+            "{\"t\":\"%s\"}",
+            type
+    );
+    crossmod_ws_send(message);
+}
+
+static void crossmod_send_drop(int stack) {
+    char message[64];
+    snprintf(
+            message,
+            sizeof(message),
+            "{\"t\":\"drop\",\"stack\":%d}",
+            stack
+    );
+    crossmod_ws_send(message);
 }
 
 static float crossmod_clamp01(float value) {
@@ -556,6 +581,9 @@ static void crossmod_capture_host_input(void) {
         s_prev_slot_mask = 0;
         s_prev_inventory_down = 0;
         s_prev_view_down = 0;
+        s_prev_drop_down = 0;
+        s_prev_swap_down = 0;
+        s_prev_escape_down = 0;
         s_mouse_ready = 0;
         return;
     }
@@ -605,6 +633,26 @@ static void crossmod_capture_host_input(void) {
         s_view_mode = (s_view_mode + 1) % 3;
     }
     s_prev_view_down = view_down;
+
+    int drop_down = crossmod_key_down('Q');
+    if (drop_down && !s_prev_drop_down && !s_guest.screen_open) {
+        crossmod_send_drop(
+                crossmod_key_down(VK_CONTROL) ? 1 : 0
+        );
+    }
+    s_prev_drop_down = drop_down;
+
+    int swap_down = crossmod_key_down('F');
+    if (swap_down && !s_prev_swap_down && !s_guest.screen_open) {
+        crossmod_send_simple_command("swap");
+    }
+    s_prev_swap_down = swap_down;
+
+    int escape_down = crossmod_key_down(VK_ESCAPE);
+    if (escape_down && !s_prev_escape_down && s_guest.screen_open) {
+        crossmod_send_simple_command("escape");
+    }
+    s_prev_escape_down = escape_down;
 
     if (!s_guest.screen_open) {
         crossmod_update_mouse_look();
@@ -1234,7 +1282,8 @@ static void send_state(const struct MarioState *m) {
             "\"r\":[%.4f,%.4f,0.0],"
             "\"fov\":%.3f,\"view\":%d,"
             "\"pl\":[%.6f,%.6f,%.6f],"
-            "\"h\":%.4f,"
+            "\"h\":%.4f,\"action\":%u,"
+            "\"sneak\":%d,\"sprint\":%d,"
             "\"level\":%d,\"area\":%d,\"course\":%d,\"act\":%d,"
             "\"stars\":%d,\"health\":%d,"
             "\"save\":%lu,\"courseStars\":%lu,"
@@ -1252,6 +1301,9 @@ static void send_state(const struct MarioState *m) {
             m->pos[1] / CROSSMOD_SCALE,
             -m->pos[2] / CROSSMOD_SCALE,
             body_yaw,
+            (unsigned int) m->action,
+            (s_host_keys & 32u) ? 1 : 0,
+            (s_host_keys & 64u) ? 1 : 0,
             (int) gCurrLevelNum,
             (int) gCurrAreaIndex,
             (int) gCurrCourseNum,

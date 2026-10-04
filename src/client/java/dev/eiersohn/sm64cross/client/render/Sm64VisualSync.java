@@ -12,6 +12,11 @@ import net.minecraft.world.phys.Vec3;
  * vanilla inventory/block/entity systems continue to work.
  */
 public final class Sm64VisualSync {
+    private static double lastX;
+    private static double lastY;
+    private static double lastZ;
+    private static boolean haveLast;
+
     private Sm64VisualSync() {
     }
 
@@ -23,18 +28,54 @@ public final class Sm64VisualSync {
             return;
         }
 
-        player.setPos(
-                state.playerX(),
-                renderY(state.playerY()),
-                state.playerZ()
-        );
+        double x = state.playerX();
+        double y = renderY(state.playerY());
+        double z = state.playerZ();
+
+        double dx = haveLast ? x - lastX : 0.0;
+        double dy = haveLast ? y - lastY : 0.0;
+        double dz = haveLast ? z - lastZ : 0.0;
+        haveLast = true;
+        lastX = x;
+        lastY = y;
+        lastZ = z;
+
+        player.xo = player.getX();
+        player.yo = player.getY();
+        player.zo = player.getZ();
+
+        player.setPos(x, y, z);
         player.setDeltaMovement(Vec3.ZERO);
         player.setNoGravity(true);
 
+        player.yRotO = player.getYRot();
+        player.yHeadRotO = player.yHeadRot;
+        player.yBodyRotO = player.yBodyRot;
+        player.xRotO = player.getXRot();
+
         player.setYRot(state.bodyYaw());
-        player.setYHeadRot(state.bodyYaw());
+        player.setYHeadRot(
+                state.viewMode() == 0
+                        ? state.yaw()
+                        : state.bodyYaw()
+        );
         player.setYBodyRot(state.bodyYaw());
-        player.setXRot(0.0f);
+        player.setXRot(
+                state.viewMode() == 0
+                        ? state.pitch()
+                        : 0.0f
+        );
+        player.setShiftKeyDown(state.sneaking());
+        player.setSprinting(state.sprinting());
+
+        float horizontalSpeed = (float) Math.min(
+                1.0,
+                Math.sqrt(dx * dx + dz * dz) * 4.5
+        );
+        player.walkAnimation.update(
+                horizontalSpeed,
+                0.45f
+        );
 
         float healthFraction = Math.max(
                 0.0f,

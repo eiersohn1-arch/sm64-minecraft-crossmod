@@ -26,6 +26,7 @@ void crossmod_bridge_init(void);
 void crossmod_bridge_shutdown(void);
 void crossmod_bridge_poll(void);
 bool crossmod_bridge_active(void);
+void crossmod_bridge_mouse_wheel(int delta);
 
 /*
  * Native-authority mode:

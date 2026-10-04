@@ -10,6 +10,7 @@ import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
+import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.BlockHitResult;
@@ -44,6 +45,9 @@ public final class GuestCommandHandler {
 
         switch (type) {
             case "slot" -> selectSlot(message.get("slot").getAsInt());
+            case "scroll" -> scrollHotbar(
+                    message.get("delta").getAsInt()
+            );
             case "inventory" -> toggleInventory();
             case "pointer" -> pointer(message);
             case "action" -> gameplayAction(message);
@@ -72,8 +76,35 @@ public final class GuestCommandHandler {
                 return;
             }
 
-            client.player.getInventory().selected =
-                    Math.max(0, Math.min(8, slot));
+            int selected = Math.max(0, Math.min(8, slot));
+            client.player.getInventory().selected = selected;
+            client.player.connection.send(
+                    new ServerboundSetCarriedItemPacket(selected)
+            );
+        });
+    }
+
+    private static void scrollHotbar(int delta) {
+        Minecraft client = Minecraft.getInstance();
+        client.execute(() -> {
+            if (client.player == null
+                    || client.screen != null
+                    || delta == 0) {
+                return;
+            }
+
+            int step = Integer.signum(delta);
+            int selected =
+                    Math.floorMod(
+                            client.player.getInventory().selected
+                                    - step,
+                            9
+                    );
+
+            client.player.getInventory().selected = selected;
+            client.player.connection.send(
+                    new ServerboundSetCarriedItemPacket(selected)
+            );
         });
     }
 

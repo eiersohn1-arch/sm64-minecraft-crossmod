@@ -180,6 +180,7 @@ def install_bridge() -> None:
     )
     makefile = SM64_PORT / "Makefile"
     gfx_d3d11 = SM64_PORT / "src" / "pc" / "gfx" / "gfx_direct3d11.cpp"
+    gfx_sdl2 = SM64_PORT / "src" / "pc" / "gfx" / "gfx_sdl2.c"
 
     # Migrate vendor/sm64-port checkouts that were patched by the older
     # position-authority bridge. setup-windows.bat intentionally reuses the
@@ -246,6 +247,26 @@ def install_bridge() -> None:
         camera,
         '#include "engine/surface_collision.h"\n',
         '#include "engine/surface_collision.h"\n#include "pc/crossmod_bridge.h"\n',
+    )
+
+    patch_once(
+        gfx_sdl2,
+        '#include "gfx_sdl.h"\n',
+        '#include "gfx_sdl.h"\n#include "pc/crossmod_bridge.h"\n',
+    )
+
+    patch_once(
+        gfx_sdl2,
+        "            case SDL_WINDOWEVENT:\n",
+        "            case SDL_MOUSEWHEEL: {\n"
+        "                int wheel_y = event.wheel.y;\n"
+        "                if (event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) {\n"
+        "                    wheel_y = -wheel_y;\n"
+        "                }\n"
+        "                crossmod_bridge_mouse_wheel(wheel_y);\n"
+        "                break;\n"
+        "            }\n"
+        "            case SDL_WINDOWEVENT:\n",
     )
 
     patch_once(

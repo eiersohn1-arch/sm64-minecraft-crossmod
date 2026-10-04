@@ -138,6 +138,25 @@ bool crossmod_bridge_active(void) {
     return s_has_guest != 0 && crossmod_ws_connected();
 }
 
+
+void crossmod_bridge_mouse_wheel(int delta) {
+    if (!s_has_guest
+            || !crossmod_ws_connected()
+            || s_guest.screen_open
+            || delta == 0) {
+        return;
+    }
+
+    char message[96];
+    snprintf(
+            message,
+            sizeof(message),
+            "{\"t\":\"scroll\",\"delta\":%d}",
+            delta
+    );
+    crossmod_ws_send(message);
+}
+
 bool crossmod_bridge_get_render_pose(
         struct CrossmodRenderPose *out_pose
 ) {

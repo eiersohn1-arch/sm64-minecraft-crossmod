@@ -3,6 +3,7 @@ package dev.eiersohn.sm64cross.client.bridge;
 import com.google.gson.JsonObject;
 import dev.eiersohn.sm64cross.client.render.Sm64VisualSync;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.ChatScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.core.BlockPos;
@@ -48,6 +49,9 @@ public final class GuestCommandHandler {
             case "drop" -> dropItem(message);
             case "swap" -> swapOffhand();
             case "escape" -> closeScreen();
+            case "chat" -> openChat(false);
+            case "command" -> openChat(true);
+            case "key" -> keyboard(message);
             case "terrain_begin" -> Sm64TerrainProxy.begin();
             case "terrain" -> Sm64TerrainProxy.cell(
                     message.get("x").getAsInt(),
@@ -79,10 +83,10 @@ public final class GuestCommandHandler {
                 return;
             }
 
-            if (client.screen instanceof InventoryScreen) {
-                client.setScreen(null);
-            } else {
+            if (client.screen == null) {
                 client.setScreen(new InventoryScreen(client.player));
+            } else {
+                client.setScreen(null);
             }
         });
     }
@@ -224,6 +228,120 @@ public final class GuestCommandHandler {
                 client.setScreen(null);
             }
         });
+    }
+
+    private static void openChat(boolean command) {
+        Minecraft client = Minecraft.getInstance();
+        client.execute(() -> {
+            if (client.player != null && client.screen == null) {
+                client.setScreen(
+                        new ChatScreen(command ? "/" : "")
+                );
+            }
+        });
+    }
+
+    private static void keyboard(JsonObject message) {
+        final int virtualKey = message.get("vk").getAsInt();
+        final boolean down = message.get("down").getAsInt() != 0;
+        final int modifiers = message.has("mods")
+                ? message.get("mods").getAsInt()
+                : 0;
+        final int codePoint = message.has("cp")
+                ? message.get("cp").getAsInt()
+                : 0;
+
+        Minecraft client = Minecraft.getInstance();
+        client.execute(() -> {
+            Screen screen = client.screen;
+            if (screen == null) {
+                return;
+            }
+
+            int key = glfwKey(virtualKey);
+            if (key != GLFW.GLFW_KEY_UNKNOWN) {
+                if (down) {
+                    screen.keyPressed(key, 0, modifiers);
+                } else {
+                    screen.keyReleased(key, 0, modifiers);
+                }
+            }
+
+            if (down && codePoint > 0) {
+                if (Character.isBmpCodePoint(codePoint)) {
+                    screen.charTyped((char) codePoint, modifiers);
+                } else if (Character.isValidCodePoint(codePoint)) {
+                    screen.charTyped(
+                            Character.highSurrogate(codePoint),
+                            modifiers
+                    );
+                    screen.charTyped(
+                            Character.lowSurrogate(codePoint),
+                            modifiers
+                    );
+                }
+            }
+        });
+    }
+
+    private static int glfwKey(int vk) {
+        if ((vk >= '0' && vk <= '9')
+                || (vk >= 'A' && vk <= 'Z')) {
+            return vk;
+        }
+
+        return switch (vk) {
+            case 0x20 -> GLFW.GLFW_KEY_SPACE;
+            case 0x1B -> GLFW.GLFW_KEY_ESCAPE;
+            case 0x0D -> GLFW.GLFW_KEY_ENTER;
+            case 0x09 -> GLFW.GLFW_KEY_TAB;
+            case 0x08 -> GLFW.GLFW_KEY_BACKSPACE;
+            case 0x2D -> GLFW.GLFW_KEY_INSERT;
+            case 0x2E -> GLFW.GLFW_KEY_DELETE;
+            case 0x27 -> GLFW.GLFW_KEY_RIGHT;
+            case 0x25 -> GLFW.GLFW_KEY_LEFT;
+            case 0x28 -> GLFW.GLFW_KEY_DOWN;
+            case 0x26 -> GLFW.GLFW_KEY_UP;
+            case 0x21 -> GLFW.GLFW_KEY_PAGE_UP;
+            case 0x22 -> GLFW.GLFW_KEY_PAGE_DOWN;
+            case 0x24 -> GLFW.GLFW_KEY_HOME;
+            case 0x23 -> GLFW.GLFW_KEY_END;
+            case 0x14 -> GLFW.GLFW_KEY_CAPS_LOCK;
+            case 0x91 -> GLFW.GLFW_KEY_SCROLL_LOCK;
+            case 0x90 -> GLFW.GLFW_KEY_NUM_LOCK;
+            case 0x2C -> GLFW.GLFW_KEY_PRINT_SCREEN;
+            case 0x13 -> GLFW.GLFW_KEY_PAUSE;
+
+            // Windows OEM keys. charTyped carries the layout-specific text;
+            // these codes are mainly needed for navigation/keybind handling.
+            case 0xBA -> GLFW.GLFW_KEY_SEMICOLON;
+            case 0xBB -> GLFW.GLFW_KEY_EQUAL;
+            case 0xBC -> GLFW.GLFW_KEY_COMMA;
+            case 0xBD -> GLFW.GLFW_KEY_MINUS;
+            case 0xBE -> GLFW.GLFW_KEY_PERIOD;
+            case 0xBF -> GLFW.GLFW_KEY_SLASH;
+            case 0xC0 -> GLFW.GLFW_KEY_GRAVE_ACCENT;
+            case 0xDB -> GLFW.GLFW_KEY_LEFT_BRACKET;
+            case 0xDC -> GLFW.GLFW_KEY_BACKSLASH;
+            case 0xDD -> GLFW.GLFW_KEY_RIGHT_BRACKET;
+            case 0xDE -> GLFW.GLFW_KEY_APOSTROPHE;
+
+            case 0xA0 -> GLFW.GLFW_KEY_LEFT_SHIFT;
+            case 0xA1 -> GLFW.GLFW_KEY_RIGHT_SHIFT;
+            case 0xA2 -> GLFW.GLFW_KEY_LEFT_CONTROL;
+            case 0xA3 -> GLFW.GLFW_KEY_RIGHT_CONTROL;
+            case 0xA4 -> GLFW.GLFW_KEY_LEFT_ALT;
+            case 0xA5 -> GLFW.GLFW_KEY_RIGHT_ALT;
+            case 0x5B -> GLFW.GLFW_KEY_LEFT_SUPER;
+            case 0x5C -> GLFW.GLFW_KEY_RIGHT_SUPER;
+
+            default -> {
+                if (vk >= 0x70 && vk <= 0x7B) {
+                    yield GLFW.GLFW_KEY_F1 + (vk - 0x70);
+                }
+                yield GLFW.GLFW_KEY_UNKNOWN;
+            }
+        };
     }
 
     private static void gameplayAction(JsonObject message) {

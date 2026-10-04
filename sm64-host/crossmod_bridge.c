@@ -106,9 +106,12 @@ static int s_prev_view_down;
 static int s_prev_drop_down;
 static int s_prev_swap_down;
 static int s_prev_escape_down;
+static int s_prev_chat_down;
+static int s_prev_command_down;
+static unsigned char s_gui_prev_keys[256];
 static int s_mouse_ready;
 static int s_view_initialized;
-static int s_view_mode = 1; /* 0=first, 1=third-back, 2=third-front */
+static int s_view_mode = 0; /* 0=first, 1=third-back, 2=third-front */
 static float s_view_yaw;
 static float s_view_pitch;
 
@@ -311,6 +314,114 @@ static float crossmod_clamp01(float value) {
         return 1.0f;
     }
     return value;
+}
+
+static int crossmod_gui_modifiers(void) {
+    int modifiers = 0;
+
+    if (crossmod_key_down(VK_SHIFT)
+            || crossmod_key_down(VK_LSHIFT)
+            || crossmod_key_down(VK_RSHIFT)) {
+        modifiers |= 0x0001; /* GLFW_MOD_SHIFT */
+    }
+
+    if (crossmod_key_down(VK_CONTROL)
+            || crossmod_key_down(VK_LCONTROL)
+            || crossmod_key_down(VK_RCONTROL)) {
+        modifiers |= 0x0002; /* GLFW_MOD_CONTROL */
+    }
+
+    if (crossmod_key_down(VK_MENU)
+            || crossmod_key_down(VK_LMENU)
+            || crossmod_key_down(VK_RMENU)) {
+        modifiers |= 0x0004; /* GLFW_MOD_ALT */
+    }
+
+    if (crossmod_key_down(VK_LWIN)
+            || crossmod_key_down(VK_RWIN)) {
+        modifiers |= 0x0008; /* GLFW_MOD_SUPER */
+    }
+
+    return modifiers;
+}
+
+static int crossmod_unicode_for_key(int virtual_key) {
+    BYTE keyboard[256];
+    if (!GetKeyboardState(keyboard)) {
+        return 0;
+    }
+
+    WCHAR chars[8];
+    UINT scan = MapVirtualKeyW(
+            (UINT) virtual_key,
+            MAPVK_VK_TO_VSC
+    );
+
+    int count = ToUnicode(
+            (UINT) virtual_key,
+            scan,
+            keyboard,
+            chars,
+            8,
+            0
+    );
+
+    if (count <= 0) {
+        return 0;
+    }
+
+    WCHAR first = chars[0];
+
+    if (count >= 2
+            && first >= 0xD800
+            && first <= 0xDBFF
+            && chars[1] >= 0xDC00
+            && chars[1] <= 0xDFFF) {
+        return 0x10000
+                + (((int) first - 0xD800) << 10)
+                + ((int) chars[1] - 0xDC00);
+    }
+
+    return (int) first;
+}
+
+static void crossmod_send_gui_keyboard(void) {
+    int modifiers = crossmod_gui_modifiers();
+
+    for (int key = 8; key < 256; ++key) {
+        int down = crossmod_key_down(key);
+        int old = s_gui_prev_keys[key] != 0;
+
+        if (down == old) {
+            continue;
+        }
+
+        s_gui_prev_keys[key] = down ? 1 : 0;
+
+        /*
+         * E and Escape are handled as cross-window screen controls so they
+         * behave consistently even when Minecraft has no OS focus.
+         */
+        if (key == 'E' || key == VK_ESCAPE) {
+            continue;
+        }
+
+        int code_point =
+                down ? crossmod_unicode_for_key(key) : 0;
+
+        char message[160];
+        snprintf(
+                message,
+                sizeof(message),
+                "{\"t\":\"key\",\"vk\":%d,\"down\":%d,"
+                "\"mods\":%d,\"cp\":%d}",
+                key,
+                down ? 1 : 0,
+                modifiers,
+                code_point
+        );
+        crossmod_ws_send(message);
+    }
 }
 
 static void crossmod_send_pointer(void) {
@@ -590,6 +701,9 @@ static void crossmod_capture_host_input(void) {
         s_prev_drop_down = 0;
         s_prev_swap_down = 0;
         s_prev_escape_down = 0;
+        s_prev_chat_down = 0;
+        s_prev_command_down = 0;
+        memset(s_gui_prev_keys, 0, sizeof(s_gui_prev_keys));
         s_mouse_ready = 0;
         return;
     }
@@ -660,6 +774,20 @@ static void crossmod_capture_host_input(void) {
     }
     s_prev_escape_down = escape_down;
 
+    int chat_down = crossmod_key_down('T');
+    if (chat_down && !s_prev_chat_down && !s_guest.screen_open) {
+        crossmod_send_simple_command("chat");
+    }
+    s_prev_chat_down = chat_down;
+
+    int command_down = crossmod_key_down(VK_OEM_2);
+    if (command_down
+            && !s_prev_command_down
+            && !s_guest.screen_open) {
+        crossmod_send_simple_command("command");
+    }
+    s_prev_command_down = command_down;
+
     if (!s_guest.screen_open) {
         crossmod_update_mouse_look();
 
@@ -680,6 +808,7 @@ static void crossmod_capture_host_input(void) {
     } else {
         s_prev_slot_mask = 0;
         crossmod_send_pointer();
+        crossmod_send_gui_keyboard();
     }
 
     if (!s_guest.screen_open) {

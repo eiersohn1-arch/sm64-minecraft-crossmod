@@ -19,6 +19,10 @@ public final class ServerPlayerSync {
     private static int lastArea = Integer.MIN_VALUE;
     private static int lastCourse = Integer.MIN_VALUE;
     private static int lastAct = Integer.MIN_VALUE;
+    private static double lockX;
+    private static double lockY;
+    private static double lockZ;
+    private static boolean wasTerrainReady;
 
     private ServerPlayerSync() {
     }
@@ -29,6 +33,7 @@ public final class ServerPlayerSync {
         if (!state.connected() || client.player == null) {
             lastAppliedHealth = Float.NaN;
             wasConnected = false;
+            wasTerrainReady = false;
             return;
         }
 
@@ -47,21 +52,28 @@ public final class ServerPlayerSync {
                 || state.act() != lastAct;
 
         if (contextChanged) {
+            lockX = state.playerX();
+            lockY = Sm64CrossMod.OVERLAY_ORIGIN_Y + state.playerY();
+            lockZ = state.playerZ();
+
             lastLevel = state.level();
             lastArea = state.area();
             lastCourse = state.course();
             lastAct = state.act();
+            wasTerrainReady = false;
         }
         wasConnected = true;
 
         final boolean doSpawnSync = contextChanged;
-        final double spawnX = state.playerX();
-        final double spawnY =
-                Sm64CrossMod.OVERLAY_ORIGIN_Y + state.playerY();
-        final double spawnZ = state.playerZ();
+        final boolean terrainReady = Sm64TerrainProxy.isReady();
+        final boolean releaseGravity = terrainReady && !wasTerrainReady;
+        final double spawnX = lockX;
+        final double spawnY = lockY;
+        final double spawnZ = lockZ;
         final float yaw = state.yaw();
         final float pitch = state.pitch();
         final int hostHealth = state.health();
+        wasTerrainReady = terrainReady;
 
         server.execute(() -> {
             ServerPlayer player =
@@ -74,7 +86,7 @@ public final class ServerPlayerSync {
                 return;
             }
 
-            if (doSpawnSync) {
+            if (doSpawnSync || !terrainReady) {
                 player.teleportTo(
                         player.serverLevel(),
                         spawnX,
@@ -83,6 +95,10 @@ public final class ServerPlayerSync {
                         yaw,
                         pitch
                 );
+                player.setDeltaMovement(0.0, 0.0, 0.0);
+                player.setNoGravity(true);
+                player.resetFallDistance();
+            } else if (releaseGravity || player.isNoGravity()) {
                 player.setNoGravity(false);
                 player.resetFallDistance();
             }

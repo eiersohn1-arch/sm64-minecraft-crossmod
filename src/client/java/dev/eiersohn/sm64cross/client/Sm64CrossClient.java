@@ -1,5 +1,6 @@
 package dev.eiersohn.sm64cross.client;
 
+import dev.eiersohn.sm64cross.client.bridge.BlockCollisionPublisher;
 import dev.eiersohn.sm64cross.client.bridge.HostLink;
 import dev.eiersohn.sm64cross.client.bridge.InputPublisher;
 import dev.eiersohn.sm64cross.client.render.BackgroundGuestWindow;
@@ -18,6 +19,7 @@ public final class Sm64CrossClient implements ClientModInitializer {
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             InputPublisher.tick(client);
             Sm64VisualSync.apply(client);
+            BlockCollisionPublisher.tick(client);
             BackgroundGuestWindow.tick(client);
         });
     }

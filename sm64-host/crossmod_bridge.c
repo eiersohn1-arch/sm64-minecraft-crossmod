@@ -33,6 +33,7 @@ extern struct CameraFOVStatus sFOVState;
 #define CROSSMOD_MIN_MELEE_REACH 220.0f
 #define CROSSMOD_MAX_MELEE_REACH 520.0f
 #define CROSSMOD_ATTACK_HALF_ANGLE_COS 0.35f
+#define CROSSMOD_MAX_BLOCK_BOXES 4096
 
 #define CROSSMOD_ENEMY_INTERACT_MASK ( \
     INTERACT_GRABBABLE | \
@@ -48,6 +49,17 @@ extern struct CameraFOVStatus sFOVState;
     INTERACT_SHOCK | \
     INTERACT_UNKNOWN_08 \
 )
+
+struct CrossmodBlockBox {
+    long long key;
+    float min_x;
+    float min_y;
+    float min_z;
+    float max_x;
+    float max_y;
+    float max_z;
+    int active;
+};
 
 struct CrossmodSurfaceHit {
     int valid;
@@ -70,6 +82,8 @@ struct CrossmodGuestState {
     float health;
     int food;
 };
+
+static struct CrossmodBlockBox s_block_boxes[CROSSMOD_MAX_BLOCK_BOXES];
 
 static int s_has_guest;
 static struct CrossmodGuestState s_guest;
@@ -113,6 +127,81 @@ bool crossmod_bridge_get_render_pose(
 
     *out_pose = s_render_pose;
     return true;
+}
+
+static struct CrossmodBlockBox *crossmod_find_block_box(
+        long long key
+) {
+    for (int i = 0; i < CROSSMOD_MAX_BLOCK_BOXES; ++i) {
+        if (s_block_boxes[i].active
+                && s_block_boxes[i].key == key) {
+            return &s_block_boxes[i];
+        }
+    }
+
+    return NULL;
+}
+
+static void crossmod_update_block_box(const char *text) {
+    long long key;
+    struct CrossmodBlockBox next;
+    memset(&next, 0, sizeof(next));
+
+    int count = sscanf(
+            text,
+            "{\"t\":\"box\",\"key\":%lld,"
+            "\"min\":[%f,%f,%f],"
+            "\"max\":[%f,%f,%f]}",
+            &key,
+            &next.min_x,
+            &next.min_y,
+            &next.min_z,
+            &next.max_x,
+            &next.max_y,
+            &next.max_z
+    );
+
+    if (count != 7) {
+        return;
+    }
+
+    struct CrossmodBlockBox *box =
+            crossmod_find_block_box(key);
+
+    if (box == NULL) {
+        for (int i = 0; i < CROSSMOD_MAX_BLOCK_BOXES; ++i) {
+            if (!s_block_boxes[i].active) {
+                box = &s_block_boxes[i];
+                break;
+            }
+        }
+    }
+
+    if (box == NULL) {
+        return;
+    }
+
+    *box = next;
+    box->key = key;
+    box->active = 1;
+}
+
+static void crossmod_remove_block_box(const char *text) {
+    long long key;
+
+    if (sscanf(
+            text,
+            "{\"t\":\"unbox\",\"key\":%lld}",
+            &key
+        ) != 1) {
+        return;
+    }
+
+    struct CrossmodBlockBox *box =
+            crossmod_find_block_box(key);
+    if (box != NULL) {
+        memset(box, 0, sizeof(*box));
+    }
 }
 
 static int parse_guest_packet(
@@ -484,6 +573,16 @@ void crossmod_bridge_poll(void) {
     }
 
     while (crossmod_ws_poll_message(buffer, sizeof(buffer))) {
+        if (strncmp(buffer, "{\"t\":\"box\"", 10) == 0) {
+            crossmod_update_block_box(buffer);
+            continue;
+        }
+
+        if (strncmp(buffer, "{\"t\":\"unbox\"", 12) == 0) {
+            crossmod_remove_block_box(buffer);
+            continue;
+        }
+
         struct CrossmodGuestState next;
         memset(&next, 0, sizeof(next));
 
@@ -1005,4 +1104,46 @@ void crossmod_bridge_after_mario_update(struct MarioState *m) {
 
     crossmod_process_combat(m);
     send_state(m);
+}
+
+
+void crossmod_bridge_load_block_surfaces(void) {
+    if (!s_has_guest) {
+        return;
+    }
+
+    for (int i = 0; i < CROSSMOD_MAX_BLOCK_BOXES; ++i) {
+        const struct CrossmodBlockBox *box =
+                &s_block_boxes[i];
+
+        if (!box->active) {
+            continue;
+        }
+
+        /*
+         * Minecraft X matches SM64 X. Minecraft Z is the negated SM64 Z.
+         * Convert each collision AABB back to N64 units. Swapping Z min/max
+         * after negation keeps the box ordered.
+         */
+        float min_x = box->min_x * CROSSMOD_SCALE;
+        float max_x = box->max_x * CROSSMOD_SCALE;
+        float min_y = box->min_y * CROSSMOD_SCALE;
+        float max_y = box->max_y * CROSSMOD_SCALE;
+        float min_z = -box->max_z * CROSSMOD_SCALE;
+        float max_z = -box->min_z * CROSSMOD_SCALE;
+
+        if (min_x <= -8190.0f || max_x >= 8190.0f
+                || min_z <= -8190.0f || max_z >= 8190.0f) {
+            continue;
+        }
+
+        crossmod_add_dynamic_box(
+                (s16) lroundf(min_x),
+                (s16) lroundf(min_y),
+                (s16) lroundf(min_z),
+                (s16) lroundf(max_x),
+                (s16) lroundf(max_y),
+                (s16) lroundf(max_z)
+        );
+    }
 }

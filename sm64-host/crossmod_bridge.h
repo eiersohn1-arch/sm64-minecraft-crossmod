@@ -34,6 +34,9 @@ bool crossmod_bridge_active(void);
 void crossmod_bridge_apply_controller(struct Controller *controller);
 void crossmod_bridge_after_mario_update(struct MarioState *m);
 
+/* Rebuild nearby Minecraft block CollisionShapes as native SM64 surfaces. */
+void crossmod_bridge_load_block_surfaces(void);
+
 /* Current host camera for Universal-Modder-style frame reprojection. */
 bool crossmod_bridge_get_render_pose(struct CrossmodRenderPose *out_pose);
 

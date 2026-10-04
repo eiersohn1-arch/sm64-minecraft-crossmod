@@ -244,6 +244,56 @@ def install_bridge() -> None:
     )
 
     patch_once(
+        mario,
+        "s32 execute_mario_action(UNUSED struct Object *o) {\n"
+        "    s32 inLoop = TRUE;\n\n"
+        "    if (gMarioState->action) {",
+        "s32 execute_mario_action(UNUSED struct Object *o) {\n"
+        "    s32 inLoop = TRUE;\n\n"
+        "    /*\n"
+        "     * Crossmod locomotion mode: vanilla Minecraft owns all player\n"
+        "     * movement/physics. Mario is only an invisible proxy used by the\n"
+        "     * original SM64 interaction, mission, warp and cutscene systems.\n"
+        "     */\n"
+        "    if (crossmod_bridge_active() && gMarioState->action) {\n"
+        "        gMarioState->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;\n"
+        "        mario_reset_bodystate(gMarioState);\n"
+        "        bool proxyReady = crossmod_bridge_sync_minecraft_proxy(gMarioState);\n\n"
+        "        if (proxyReady) {\n"
+        "            mario_handle_special_floors(gMarioState);\n"
+        "            mario_process_interactions(gMarioState);\n\n"
+        "            /*\n"
+        "             * Preserve authored non-locomotion actions such as star\n"
+        "             * grabs, doors, pipes/cannons and automatic/cutscene\n"
+        "             * state machines. Ground/air/water movement groups never\n"
+        "             * execute while Minecraft authority is active.\n"
+        "             */\n"
+        "            switch (gMarioState->action & ACT_GROUP_MASK) {\n"
+        "                case ACT_GROUP_CUTSCENE:\n"
+        "                    mario_execute_cutscene_action(gMarioState);\n"
+        "                    break;\n"
+        "                case ACT_GROUP_AUTOMATIC:\n"
+        "                    mario_execute_automatic_action(gMarioState);\n"
+        "                    break;\n"
+        "                case ACT_GROUP_OBJECT:\n"
+        "                    mario_execute_object_action(gMarioState);\n"
+        "                    break;\n"
+        "            }\n\n"
+        "            /* Never allow a native action to become locomotion. */\n"
+        "            crossmod_bridge_sync_minecraft_proxy(gMarioState);\n"
+        "        }\n\n"
+        "        update_mario_health(gMarioState);\n"
+        "        update_mario_info_for_cam(gMarioState);\n"
+        "        mario_update_hitbox_and_cap_model(gMarioState);\n"
+        "        crossmod_bridge_after_mario_update(gMarioState);\n"
+        "        gMarioState->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;\n"
+        "        gMarioState->marioObj->oInteractStatus = 0;\n"
+        "        return gMarioState->particleFlags;\n"
+        "    }\n\n"
+        "    if (gMarioState->action) {",
+    )
+
+    patch_once(
         camera,
         '#include "engine/surface_collision.h"\n',
         '#include "engine/surface_collision.h"\n#include "pc/crossmod_bridge.h"\n',

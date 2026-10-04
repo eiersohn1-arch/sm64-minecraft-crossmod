@@ -41,6 +41,9 @@ jobs:
           grep -q "GetAsyncKeyState" sm64-host/crossmod_bridge.c
           grep -q "crossmod_send_slot" sm64-host/crossmod_bridge.c
           grep -q "crossmod_send_pointer" sm64-host/crossmod_bridge.c
+          grep -q "crossmod_send_movement_input" sm64-host/crossmod_bridge.c
+          grep -q "crossmod_bridge_sync_minecraft_proxy" sm64-host/crossmod_bridge.c
+          grep -q "keySprint.setDown" src/client/java/dev/eiersohn/sm64cross/client/bridge/GuestCommandHandler.java
 
       - name: Patch a fresh upstream SM64 checkout
         run: |
@@ -89,6 +92,8 @@ jobs:
           PY
           grep -q "crossmod_bridge_apply_controller(gPlayer1Controller)" vendor/sm64-port/src/game/game_init.c
           grep -q "crossmod_bridge_after_mario_update(gMarioState)" vendor/sm64-port/src/game/mario.c
+          grep -q "crossmod_bridge_sync_minecraft_proxy(gMarioState)" vendor/sm64-port/src/game/mario.c
+          grep -q "Crossmod locomotion mode" vendor/sm64-port/src/game/mario.c
           grep -q "crossmod_bridge_override_camera(c)" vendor/sm64-port/src/game/camera.c
           grep -q "crossmod_bridge_mouse_wheel(wheel_y)" vendor/sm64-port/src/pc/gfx/gfx_sdl2.c
           grep -q "crossmod_bridge_load_block_surfaces" vendor/sm64-port/src/game/object_list_processor.c

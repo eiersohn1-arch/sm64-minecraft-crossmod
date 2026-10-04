@@ -68,11 +68,10 @@ public final class Sm64CrossMod implements ModInitializer {
                 }
 
                 /*
-                 * SM64 supplies player physics/vertical motion. Minecraft still
-                 * simulates every other entity and all block/gameplay systems.
+                 * Minecraft is the locomotion authority. Gravity, jumping,
+                 * sprinting, crouching and collision must remain vanilla.
                  */
-                player.setNoGravity(true);
-                player.resetFallDistance();
+                player.setNoGravity(false);
             }
         });
     }

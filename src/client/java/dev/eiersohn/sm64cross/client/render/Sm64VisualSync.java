@@ -4,22 +4,24 @@ import dev.eiersohn.sm64cross.Sm64CrossMod;
 import dev.eiersohn.sm64cross.client.bridge.HostState;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
-import net.minecraft.world.entity.Pose;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * Universal-modder style PlayerSync: SM64 owns the authoritative player pose,
- * while the real Minecraft player is kept in the empty overlay dimension so
- * vanilla inventory/block/entity systems continue to work.
+ * Movement-authority handoff.
+ *
+ * After the initial spawn/warp handshake this class NEVER copies Mario's
+ * position into Minecraft. Vanilla Minecraft movement, gravity, sprinting,
+ * crouching, jumping and collision are authoritative.
+ *
+ * A host snap is used only when entering a new SM64 level/area/act so the
+ * Minecraft player starts at the original game's intended spawn/warp point.
  */
 public final class Sm64VisualSync {
-    private static final int ACT_FLAG_SWIMMING = 0x00002000;
-    private static final int ACT_FLAG_SHORT_HITBOX = 0x00008000;
-
-    private static double lastX;
-    private static double lastY;
-    private static double lastZ;
-    private static boolean haveLast;
+    private static boolean wasConnected;
+    private static int lastLevel = Integer.MIN_VALUE;
+    private static int lastArea = Integer.MIN_VALUE;
+    private static int lastCourse = Integer.MIN_VALUE;
+    private static int lastAct = Integer.MIN_VALUE;
 
     private Sm64VisualSync() {
     }
@@ -29,68 +31,43 @@ public final class Sm64VisualSync {
         LocalPlayer player = client.player;
 
         if (!state.connected() || player == null) {
+            wasConnected = false;
             return;
         }
 
-        double x = state.playerX();
-        double y = renderY(state.playerY());
-        double z = state.playerZ();
+        boolean contextChanged =
+                !wasConnected
+                || state.level() != lastLevel
+                || state.area() != lastArea
+                || state.course() != lastCourse
+                || state.act() != lastAct;
 
-        double dx = haveLast ? x - lastX : 0.0;
-        double dy = haveLast ? y - lastY : 0.0;
-        double dz = haveLast ? z - lastZ : 0.0;
-        haveLast = true;
-        lastX = x;
-        lastY = y;
-        lastZ = z;
+        if (contextChanged) {
+            player.setPos(
+                    state.playerX(),
+                    renderY(state.playerY()),
+                    state.playerZ()
+            );
+            player.setDeltaMovement(Vec3.ZERO);
+            player.resetFallDistance();
 
-        player.xo = player.getX();
-        player.yo = player.getY();
-        player.zo = player.getZ();
+            lastLevel = state.level();
+            lastArea = state.area();
+            lastCourse = state.course();
+            lastAct = state.act();
+        }
 
-        player.setPos(x, y, z);
-        player.setDeltaMovement(new Vec3(dx, dy, dz));
-        player.setNoGravity(true);
-
-        player.yRotO = player.getYRot();
-        player.yHeadRotO = player.yHeadRot;
-        player.yBodyRotO = player.yBodyRot;
-        player.xRotO = player.getXRot();
+        wasConnected = true;
 
         /*
-         * Vanilla separates aim/head rotation from body rotation. Keep that
-         * separation here: SM64 movement owns the body, while the crosshair
-         * camera owns Minecraft aiming, projectile launch and item use.
+         * The visible host owns mouse-look, but Minecraft owns locomotion.
+         * Feed only view rotation back into vanilla so movement direction,
+         * block raycasts, bows and item use all follow the same crosshair.
          */
         player.setYRot(state.yaw());
         player.setYHeadRot(state.yaw());
-        player.setYBodyRot(state.bodyYaw());
         player.setXRot(state.pitch());
-        player.setShiftKeyDown(state.sneaking());
-        player.setSprinting(state.sprinting());
-
-        boolean swimming =
-                (state.marioAction() & ACT_FLAG_SWIMMING) != 0;
-        boolean shortHitbox =
-                (state.marioAction() & ACT_FLAG_SHORT_HITBOX) != 0;
-
-        if (swimming) {
-            player.setPose(Pose.SWIMMING);
-        } else if (state.sneaking() || shortHitbox) {
-            player.setPose(Pose.CROUCHING);
-        } else {
-            player.setPose(Pose.STANDING);
-        }
-
-        float horizontalSpeed = (float) Math.min(
-                1.0,
-                Math.sqrt(dx * dx + dz * dz) * 4.5
-        );
-        player.walkAnimation.update(
-                horizontalSpeed,
-                0.45f
-        );
-
+        player.setNoGravity(false);
     }
 
     public static double renderY(double hostY) {

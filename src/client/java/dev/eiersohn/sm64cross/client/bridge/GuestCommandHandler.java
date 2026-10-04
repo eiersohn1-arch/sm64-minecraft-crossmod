@@ -53,6 +53,7 @@ public final class GuestCommandHandler {
             );
             case "inventory" -> toggleInventory();
             case "hud" -> toggleHud();
+            case "move" -> movementInput(message);
             case "pointer" -> pointer(message);
             case "action" -> gameplayAction(message);
             case "drop" -> dropItem(message);
@@ -71,6 +72,66 @@ public final class GuestCommandHandler {
             default -> {
             }
         }
+    }
+
+    private static void movementInput(JsonObject message) {
+        final boolean forward = message.get("f").getAsInt() != 0;
+        final boolean back = message.get("b").getAsInt() != 0;
+        final boolean left = message.get("l").getAsInt() != 0;
+        final boolean right = message.get("r").getAsInt() != 0;
+        final boolean jump = message.get("jump").getAsInt() != 0;
+        final boolean sneak = message.get("sneak").getAsInt() != 0;
+        final boolean sprint = message.get("sprint").getAsInt() != 0;
+        final float yaw = message.get("yaw").getAsFloat();
+        final float pitch = message.get("pitch").getAsFloat();
+
+        Minecraft client = Minecraft.getInstance();
+        client.execute(() -> {
+            setMovementKeys(
+                    client,
+                    forward,
+                    back,
+                    left,
+                    right,
+                    jump,
+                    sneak,
+                    sprint
+            );
+
+            if (client.player != null && client.screen == null) {
+                client.player.setYRot(yaw);
+                client.player.setYHeadRot(yaw);
+                client.player.setXRot(pitch);
+            }
+        });
+    }
+
+    public static void releaseMovement() {
+        Minecraft client = Minecraft.getInstance();
+        client.execute(() -> setMovementKeys(
+                client,
+                false, false, false, false,
+                false, false, false
+        ));
+    }
+
+    private static void setMovementKeys(
+            Minecraft client,
+            boolean forward,
+            boolean back,
+            boolean left,
+            boolean right,
+            boolean jump,
+            boolean sneak,
+            boolean sprint
+    ) {
+        client.options.keyUp.setDown(forward);
+        client.options.keyDown.setDown(back);
+        client.options.keyLeft.setDown(left);
+        client.options.keyRight.setDown(right);
+        client.options.keyJump.setDown(jump);
+        client.options.keyShift.setDown(sneak);
+        client.options.keySprint.setDown(sprint);
     }
 
     private static void selectSlot(int slot) {

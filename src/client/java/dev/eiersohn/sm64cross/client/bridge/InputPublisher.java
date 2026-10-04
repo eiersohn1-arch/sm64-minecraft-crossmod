@@ -1,16 +1,18 @@
 package dev.eiersohn.sm64cross.client.bridge;
 
+import dev.eiersohn.sm64cross.Sm64CrossMod;
 import java.util.Locale;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.phys.Vec3;
 
 /**
- * Hidden Minecraft guest -> visible SM64 host state.
+ * Minecraft -> SM64 authoritative gameplay state.
  *
- * Keyboard/mouse input is intentionally NOT read here anymore. The visible
- * SM64 window owns input. Minecraft only reports the currently selected item,
- * hotbar slot and GUI state so SM64 can apply Minecraft item semantics.
+ * Movement is Minecraft-owned. The host receives the real vanilla player
+ * position/velocity every tick and only mirrors it into an invisible Mario
+ * proxy for original SM64 stars, warps, doors, enemies and mission logic.
  */
 public final class InputPublisher {
     private static long sequence;
@@ -31,13 +33,18 @@ public final class InputPublisher {
                 .toString();
 
         CombatProfile combat = CombatProfile.forItem(item);
+        Vec3 velocity = client.player.getDeltaMovement();
 
         HostLink.broadcastMessage(String.format(
                 Locale.ROOT,
                 "{\"t\":\"guest\",\"seq\":%d,\"item\":\"%s\","
                         + "\"slot\":%d,\"weapon\":\"%s\","
                         + "\"reach\":%.3f,\"power\":%d,\"screen\":%d,"
-                        + "\"health\":%.3f,\"food\":%d}",
+                        + "\"health\":%.3f,\"food\":%d,"
+                        + "\"pos\":[%.6f,%.6f,%.6f],"
+                        + "\"vel\":[%.6f,%.6f,%.6f],"
+                        + "\"yaw\":%.4f,\"pitch\":%.4f,\"body\":%.4f,"
+                        + "\"ground\":%d,\"sneak\":%d,\"sprint\":%d}",
                 sequence++,
                 escape(item),
                 client.player.getInventory().selected,
@@ -46,7 +53,19 @@ public final class InputPublisher {
                 combat.power,
                 client.screen == null ? 0 : 1,
                 client.player.getHealth(),
-                client.player.getFoodData().getFoodLevel()
+                client.player.getFoodData().getFoodLevel(),
+                client.player.getX(),
+                client.player.getY() - Sm64CrossMod.OVERLAY_ORIGIN_Y,
+                client.player.getZ(),
+                velocity.x,
+                velocity.y,
+                velocity.z,
+                client.player.getYRot(),
+                client.player.getXRot(),
+                client.player.yBodyRot,
+                client.player.onGround() ? 1 : 0,
+                client.player.isShiftKeyDown() ? 1 : 0,
+                client.player.isSprinting() ? 1 : 0
         ));
     }
 

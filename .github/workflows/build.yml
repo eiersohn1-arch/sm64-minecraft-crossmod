@@ -47,7 +47,7 @@ jobs:
           grep -q "keySprint.setDown" src/client/java/dev/eiersohn/sm64cross/client/bridge/GuestCommandHandler.java
           grep -q 'case "look"' src/client/java/dev/eiersohn/sm64cross/client/bridge/GuestCommandHandler.java
           grep -q "sensitivity().get()" src/client/java/dev/eiersohn/sm64cross/client/bridge/GuestCommandHandler.java
-          grep -q '"t":"look"' sm64-host/crossmod_bridge.c
+          grep -q "look.*dx.*dy" sm64-host/crossmod_bridge.c
 
       - name: Patch a fresh upstream SM64 checkout
         run: |

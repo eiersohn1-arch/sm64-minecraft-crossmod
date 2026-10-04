@@ -244,8 +244,8 @@ def install_bridge() -> None:
 
     patch_once(
         camera,
-        '#include "surface_collision.h"\n',
-        '#include "surface_collision.h"\n#include "pc/crossmod_bridge.h"\n',
+        '#include "engine/surface_collision.h"\n',
+        '#include "engine/surface_collision.h"\n#include "pc/crossmod_bridge.h"\n',
     )
 
     patch_once(

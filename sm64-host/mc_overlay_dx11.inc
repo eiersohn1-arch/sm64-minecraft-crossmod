@@ -92,13 +92,7 @@ static struct {
     bool initialized = false;
     bool shader_failed = false;
 
-    bool window_overlay_mode = false;
-    bool window_hidden = false;
     bool host_focus_claimed = false;
-    int last_window_x = 0x7fffffff;
-    int last_window_y = 0x7fffffff;
-    int last_window_width = 0;
-    int last_window_height = 0;
 } mc_overlay;
 
 template <typename T>
@@ -1077,109 +1071,6 @@ static void mc_overlay_claim_host_focus(void) {
     SetActiveWindow(host);
 
     mc_overlay.host_focus_claimed = true;
-}
-
-static void mc_overlay_sync_window(void) {
-    if (mc_overlay.view == nullptr) {
-        return;
-    }
-
-    HWND host = gfx_dxgi_get_h_wnd();
-    HWND minecraft = reinterpret_cast<HWND>(
-        static_cast<uintptr_t>(mc_overlay_read<uint64_t>(64))
-    );
-
-    if (minecraft == nullptr || !IsWindow(minecraft)) {
-        if (mc_overlay.window_overlay_mode) {
-            /*
-             * The Minecraft process/window went away. The host belongs to this
-             * crossmod session, so close it instead of leaving an invisible
-             * top-most overlay process behind.
-             */
-            PostMessageW(host, WM_CLOSE, 0, 0);
-        }
-        return;
-    }
-
-    int x = mc_overlay_read<int32_t>(48);
-    int y = mc_overlay_read<int32_t>(52);
-    int width = mc_overlay_read<int32_t>(56);
-    int height = mc_overlay_read<int32_t>(60);
-
-    if (width < 64 || height < 64 || width > 10000 || height > 10000) {
-        return;
-    }
-
-    /*
-     * Minecraft stays the focused/input window. SM64 is an opaque,
-     * click-through, no-activate overlay exactly over Minecraft's content
-     * area. Therefore keyboard, mouse, hotbar and inventory input continue to
-     * be handled by Minecraft while the player sees the composited SM64 frame.
-     */
-    if (!mc_overlay.window_overlay_mode) {
-        SetWindowLongPtrW(host, GWL_STYLE, WS_POPUP | WS_VISIBLE);
-
-        LONG_PTR ex_style = GetWindowLongPtrW(host, GWL_EXSTYLE);
-        ex_style |= WS_EX_LAYERED
-                 | WS_EX_TRANSPARENT
-                 | WS_EX_NOACTIVATE
-                 | WS_EX_TOOLWINDOW;
-        SetWindowLongPtrW(host, GWL_EXSTYLE, ex_style);
-
-        SetLayeredWindowAttributes(
-            host,
-            0,
-            255,
-            LWA_ALPHA
-        );
-
-        mc_overlay.window_overlay_mode = true;
-    }
-
-    bool minecraft_focused = GetForegroundWindow() == minecraft;
-
-    if (!minecraft_focused) {
-        if (!mc_overlay.window_hidden) {
-            ShowWindow(host, SW_HIDE);
-            mc_overlay.window_hidden = true;
-        }
-        return;
-    }
-
-    if (mc_overlay.window_hidden) {
-        ShowWindow(host, SW_SHOWNOACTIVATE);
-        mc_overlay.window_hidden = false;
-    }
-
-    if (x != mc_overlay.last_window_x
-            || y != mc_overlay.last_window_y
-            || width != mc_overlay.last_window_width
-            || height != mc_overlay.last_window_height) {
-        SetWindowPos(
-            host,
-            HWND_TOPMOST,
-            x,
-            y,
-            width,
-            height,
-            SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_SHOWWINDOW
-        );
-
-        mc_overlay.last_window_x = x;
-        mc_overlay.last_window_y = y;
-        mc_overlay.last_window_width = width;
-        mc_overlay.last_window_height = height;
-    } else {
-        SetWindowPos(
-            host,
-            HWND_TOPMOST,
-            0,
-            0,
-            0,
-            0,
-            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
-        );
-    }
 }
 
 static void mc_overlay_invalidate_sm64_cache(void) {

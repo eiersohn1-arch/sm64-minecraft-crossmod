@@ -168,6 +168,15 @@ def install_bridge() -> None:
     mario = SM64_PORT / "src" / "game" / "mario.c"
     game_init = SM64_PORT / "src" / "game" / "game_init.c"
     hud = SM64_PORT / "src" / "game" / "hud.c"
+    object_list_processor = (
+        SM64_PORT / "src" / "game" / "object_list_processor.c"
+    )
+    surface_load_h = (
+        SM64_PORT / "src" / "engine" / "surface_load.h"
+    )
+    surface_load_c = (
+        SM64_PORT / "src" / "engine" / "surface_load.c"
+    )
     makefile = SM64_PORT / "Makefile"
     gfx_d3d11 = SM64_PORT / "src" / "pc" / "gfx" / "gfx_direct3d11.cpp"
 
@@ -260,6 +269,107 @@ def install_bridge() -> None:
         '#include "print.h"\n\n/* @file hud.c',
         '#include "print.h"\n#include "pc/crossmod_bridge.h"\n\n/* @file hud.c',
     )
+
+    patch_once(
+        object_list_processor,
+        '#include "platform_displacement.h"\n',
+        '#include "platform_displacement.h"\n'
+        '#include "pc/crossmod_bridge.h"\n',
+    )
+
+    patch_once(
+        object_list_processor,
+        "    update_terrain_objects();\n\n"
+        "    // If Mario was touching a moving platform",
+        "    update_terrain_objects();\n"
+        "    crossmod_bridge_load_block_surfaces();\n\n"
+        "    // If Mario was touching a moving platform",
+    )
+
+    patch_once(
+        surface_load_h,
+        "void load_object_collision_model(void);\n",
+        "void load_object_collision_model(void);\n"
+        "void crossmod_add_dynamic_box(\n"
+        "    s16 minX, s16 minY, s16 minZ,\n"
+        "    s16 maxX, s16 maxY, s16 maxZ\n"
+        ");\n",
+    )
+
+    surface_text = surface_load_c.read_text(encoding="utf-8")
+    if "void crossmod_add_dynamic_box(" not in surface_text:
+        surface_text += r"""
+
+/*
+ * Crossmod collision injection.
+ *
+ * Minecraft remains authoritative for its blocks. Each nearby Minecraft
+ * VoxelShape AABB is converted to a 12-triangle cube/rectangular prism and
+ * inserted into SM64's dynamic spatial partitions after ordinary moving
+ * platform collision has been loaded for the frame.
+ */
+static void crossmod_add_dynamic_triangle(
+        s16 x1, s16 y1, s16 z1,
+        s16 x2, s16 y2, s16 z2,
+        s16 x3, s16 y3, s16 z3
+) {
+    s16 vertexData[9] = {
+        x1, y1, z1,
+        x2, y2, z2,
+        x3, y3, z3
+    };
+    s16 indices[3] = { 0, 1, 2 };
+    s16 *cursor = indices;
+
+    struct Surface *surface =
+        read_surface_data(vertexData, &cursor);
+
+    if (surface == NULL) {
+        return;
+    }
+
+    surface->type = SURFACE_DEFAULT;
+    surface->flags |= SURFACE_FLAG_DYNAMIC;
+    surface->room = 0;
+    surface->object = NULL;
+
+    add_surface(surface, TRUE);
+}
+
+void crossmod_add_dynamic_box(
+        s16 x0, s16 y0, s16 z0,
+        s16 x1, s16 y1, s16 z1
+) {
+    if (x0 >= x1 || y0 >= y1 || z0 >= z1) {
+        return;
+    }
+
+    /* bottom -Y */
+    crossmod_add_dynamic_triangle(x0,y0,z0, x1,y0,z0, x1,y0,z1);
+    crossmod_add_dynamic_triangle(x0,y0,z0, x1,y0,z1, x0,y0,z1);
+
+    /* top +Y */
+    crossmod_add_dynamic_triangle(x0,y1,z0, x1,y1,z1, x1,y1,z0);
+    crossmod_add_dynamic_triangle(x0,y1,z0, x0,y1,z1, x1,y1,z1);
+
+    /* z0 face -Z */
+    crossmod_add_dynamic_triangle(x0,y0,z0, x0,y1,z0, x1,y1,z0);
+    crossmod_add_dynamic_triangle(x0,y0,z0, x1,y1,z0, x1,y0,z0);
+
+    /* z1 face +Z */
+    crossmod_add_dynamic_triangle(x0,y0,z1, x1,y0,z1, x1,y1,z1);
+    crossmod_add_dynamic_triangle(x0,y0,z1, x1,y1,z1, x0,y1,z1);
+
+    /* x0 face -X */
+    crossmod_add_dynamic_triangle(x0,y0,z0, x0,y0,z1, x0,y1,z1);
+    crossmod_add_dynamic_triangle(x0,y0,z0, x0,y1,z1, x0,y1,z0);
+
+    /* x1 face +X */
+    crossmod_add_dynamic_triangle(x1,y0,z0, x1,y1,z0, x1,y1,z1);
+    crossmod_add_dynamic_triangle(x1,y0,z0, x1,y1,z1, x1,y0,z1);
+}
+"""
+        surface_load_c.write_text(surface_text, encoding="utf-8")
 
     patch_once(
         hud,

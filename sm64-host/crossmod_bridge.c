@@ -23,6 +23,7 @@
 #include "game/save_file.h"
 #include "engine/math_util.h"
 #include "engine/surface_collision.h"
+#include "engine/surface_load.h"
 #include "engine/graph_node.h"
 #include "object_constants.h"
 #include "object_fields.h"

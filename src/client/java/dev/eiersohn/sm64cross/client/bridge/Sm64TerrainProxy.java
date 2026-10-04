@@ -84,6 +84,10 @@ public final class Sm64TerrainProxy {
         }
     }
 
+    public static synchronized boolean isProxy(BlockPos pos) {
+        return active.contains(pos);
+    }
+
     public static synchronized void clear() {
         pending = null;
 

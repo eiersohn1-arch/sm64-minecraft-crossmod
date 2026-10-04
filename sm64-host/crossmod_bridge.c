@@ -1295,6 +1295,83 @@ static void crossmod_publish_terrain_proxy(
                     block_z
             );
             crossmod_ws_send(message);
+
+            /*
+             * Local wall shell for Minecraft entities. Four vertical samples
+             * are enough for ordinary mobs/projectiles while keeping the host
+             * work bounded. Only original/static SM64 walls are mirrored.
+             */
+            for (int layer = 0; layer < 4; ++layer) {
+                float wall_y =
+                        floor_y + 50.0f
+                        + (float) layer * CROSSMOD_SCALE;
+
+                struct WallCollisionData wall;
+                memset(&wall, 0, sizeof(wall));
+                wall.x = sample_x;
+                wall.y = wall_y;
+                wall.z = sample_z;
+                wall.offsetY = 0.0f;
+                wall.radius = 42.0f;
+
+                if (find_wall_collisions(&wall) > 0
+                        && wall.numWalls > 0
+                        && wall.walls[0] != NULL
+                        && !(wall.walls[0]->flags
+                            & SURFACE_FLAG_DYNAMIC)) {
+                    int wall_block_y =
+                            (int) floorf(
+                                wall_y / CROSSMOD_SCALE
+                                + (float) CROSSMOD_OVERLAY_ORIGIN_Y
+                            );
+
+                    snprintf(
+                            message,
+                            sizeof(message),
+                            "{\"t\":\"terrain\","
+                            "\"x\":%d,\"y\":%d,\"z\":%d}",
+                            block_x,
+                            wall_block_y,
+                            block_z
+                    );
+                    crossmod_ws_send(message);
+                }
+            }
+
+            /*
+             * Mirror nearby low ceilings as a single invisible voxel layer.
+             * High sky/room ceilings do not need to be streamed for local
+             * entity physics.
+             */
+            struct Surface *ceil = NULL;
+            float ceil_y = find_ceil(
+                    sample_x,
+                    floor_y + 50.0f,
+                    sample_z,
+                    &ceil
+            );
+
+            if (ceil != NULL
+                    && !(ceil->flags & SURFACE_FLAG_DYNAMIC)
+                    && ceil_y > floor_y + 80.0f
+                    && ceil_y < floor_y + 650.0f) {
+                int ceil_block_y =
+                        (int) floorf(
+                            ceil_y / CROSSMOD_SCALE
+                            + (float) CROSSMOD_OVERLAY_ORIGIN_Y
+                        );
+
+                snprintf(
+                        message,
+                        sizeof(message),
+                        "{\"t\":\"terrain\","
+                        "\"x\":%d,\"y\":%d,\"z\":%d}",
+                        block_x,
+                        ceil_block_y,
+                        block_z
+                );
+                crossmod_ws_send(message);
+            }
         }
     }
 

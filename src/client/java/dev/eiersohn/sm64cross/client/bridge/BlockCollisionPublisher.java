@@ -8,7 +8,6 @@ import java.util.Map;
 import java.util.Set;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.shapes.VoxelShape;
@@ -67,7 +66,8 @@ public final class BlockCollisionPublisher {
 
                     BlockState state =
                             client.level.getBlockState(cursor);
-                    if (state.isAir() || state.is(Blocks.BARRIER)) {
+                    if (state.isAir()
+                            || Sm64TerrainProxy.isProxy(cursor)) {
                         continue;
                     }
 

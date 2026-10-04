@@ -387,6 +387,11 @@ public final class GuestCommandHandler {
             }
 
             HitResult target = client.hitResult;
+            boolean proxyBlockHit =
+                    target instanceof BlockHitResult blockHit
+                    && Sm64TerrainProxy.isProxy(
+                            blockHit.getBlockPos()
+                    );
 
             if (attackSerial != lastAttackAction && attackDown) {
                 lastAttackAction = attackSerial;
@@ -395,7 +400,8 @@ public final class GuestCommandHandler {
                     Entity entity = entityHit.getEntity();
                     client.gameMode.attack(client.player, entity);
                     client.player.swing(InteractionHand.MAIN_HAND);
-                } else if (target instanceof BlockHitResult blockHit
+                } else if (!proxyBlockHit
+                        && target instanceof BlockHitResult blockHit
                         && target.getType() == HitResult.Type.BLOCK) {
                     destroyingBlock = client.gameMode.startDestroyBlock(
                             blockHit.getBlockPos(),
@@ -407,6 +413,7 @@ public final class GuestCommandHandler {
 
             if (attackDown
                     && destroyingBlock
+                    && !proxyBlockHit
                     && target instanceof BlockHitResult blockHit
                     && target.getType() == HitResult.Type.BLOCK) {
                 client.gameMode.continueDestroyBlock(

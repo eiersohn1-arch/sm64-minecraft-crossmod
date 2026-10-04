@@ -5,6 +5,7 @@ import dev.eiersohn.sm64cross.client.render.Sm64VisualSync;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.ChatScreen;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -83,10 +84,24 @@ public final class GuestCommandHandler {
                 return;
             }
 
-            if (client.screen == null) {
-                client.setScreen(new InventoryScreen(client.player));
-            } else {
+            if (client.screen != null) {
                 client.setScreen(null);
+                return;
+            }
+
+            if (client.gameMode != null
+                    && client.gameMode.hasInfiniteItems()) {
+                client.setScreen(
+                        new CreativeModeInventoryScreen(
+                                client.player,
+                                client.player.connection.enabledFeatures(),
+                                client.options.operatorItemsTab().get()
+                        )
+                );
+            } else {
+                client.setScreen(
+                        new InventoryScreen(client.player)
+                );
             }
         });
     }

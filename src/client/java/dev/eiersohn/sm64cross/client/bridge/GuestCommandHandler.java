@@ -12,6 +12,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
 import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.EntityHitResult;
@@ -35,6 +36,8 @@ public final class GuestCommandHandler {
     private static long lastAttackAction = -1L;
     private static long lastUseAction = -1L;
     private static boolean destroyingBlock;
+    private static BlockPos destroyingPos;
+    private static Direction destroyingFace;
     private static boolean usingItem;
 
     private GuestCommandHandler() {
@@ -437,131 +440,231 @@ public final class GuestCommandHandler {
                     || client.level == null
                     || client.gameMode == null
                     || client.screen != null) {
+                stopDestroying(client);
+                releaseUsing(client);
                 return;
             }
 
             HitResult target = client.hitResult;
-            boolean proxyBlockHit =
+            BlockHitResult targetBlock =
                     target instanceof BlockHitResult blockHit
+                            && target.getType() == HitResult.Type.BLOCK
+                            ? blockHit
+                            : null;
+            boolean proxyBlockHit =
+                    targetBlock != null
                     && Sm64TerrainProxy.isProxy(
-                            blockHit.getBlockPos()
+                            targetBlock.getBlockPos()
                     );
 
             if (attackSerial != lastAttackAction && attackDown) {
                 lastAttackAction = attackSerial;
 
+                /*
+                 * Vanilla always gives visual feedback for a left click,
+                 * including a miss. This keeps the real first-person Steve
+                 * hand/item animation responsive inside the SM64 window.
+                 */
+                client.player.swing(InteractionHand.MAIN_HAND);
+
                 if (target instanceof EntityHitResult entityHit) {
                     Entity entity = entityHit.getEntity();
                     client.gameMode.attack(client.player, entity);
-                    client.player.swing(InteractionHand.MAIN_HAND);
-                } else if (!proxyBlockHit
-                        && target instanceof BlockHitResult blockHit
-                        && target.getType() == HitResult.Type.BLOCK) {
-                    destroyingBlock = client.gameMode.startDestroyBlock(
-                            blockHit.getBlockPos(),
-                            blockHit.getDirection()
-                    );
-                    client.player.swing(InteractionHand.MAIN_HAND);
+                    stopDestroying(client);
+                } else if (targetBlock != null && !proxyBlockHit) {
+                    startDestroying(client, targetBlock);
+                } else {
+                    stopDestroying(client);
                 }
             }
 
-            if (attackDown
-                    && destroyingBlock
-                    && !proxyBlockHit
-                    && target instanceof BlockHitResult blockHit
-                    && target.getType() == HitResult.Type.BLOCK) {
-                client.gameMode.continueDestroyBlock(
-                        blockHit.getBlockPos(),
-                        blockHit.getDirection()
-                );
-            } else if (!attackDown && destroyingBlock) {
-                client.gameMode.stopDestroyBlock();
-                destroyingBlock = false;
+            if (attackDown && targetBlock != null && !proxyBlockHit) {
+                BlockPos pos = targetBlock.getBlockPos();
+                Direction face = targetBlock.getDirection();
+
+                /*
+                 * When the crosshair moves to another block while the mouse is
+                 * held, restart mining exactly like vanilla instead of
+                 * continuing an old destroy session against the wrong voxel.
+                 */
+                if (!destroyingBlock
+                        || !pos.equals(destroyingPos)
+                        || face != destroyingFace) {
+                    startDestroying(client, targetBlock);
+                } else {
+                    client.gameMode.continueDestroyBlock(pos, face);
+                }
+            } else if (!attackDown || proxyBlockHit || targetBlock == null) {
+                stopDestroying(client);
             }
 
             if (useSerial != lastUseAction && useDown) {
                 lastUseAction = useSerial;
 
-                boolean handled = false;
+                /*
+                 * Vanilla interaction order is important. A block/entity may
+                 * return PASS, in which case the held item still gets a chance
+                 * to run (food, bows, shields, buckets, etc.). The old bridge
+                 * treated any targeted block as "handled" even on PASS.
+                 */
+                boolean consumed = false;
 
                 if (target instanceof EntityHitResult entityHit) {
-                    client.gameMode.interact(
-                            client.player,
-                            entityHit.getEntity(),
-                            InteractionHand.MAIN_HAND
-                    );
-                    handled = true;
-                } else if (target instanceof BlockHitResult blockHit
-                        && target.getType() == HitResult.Type.BLOCK) {
-                    client.gameMode.useItemOn(
-                            client.player,
-                            InteractionHand.MAIN_HAND,
-                            blockHit
-                    );
-                    handled = true;
+                    consumed = tryInteractEntity(client, entityHit);
                 }
 
-                if (!handled && hostHit) {
-                    /*
-                     * SM64 supplied a hit against its real triangle collision.
-                     * Convert that point into the hidden Minecraft overlay
-                     * world's block grid. The +normal*0.55 offset picks the
-                     * voxel immediately outside the SM64 surface.
-                     */
-                    double placeX = hitX + normalX * 0.55;
-                    double placeY =
-                            Sm64VisualSync.renderY(
-                                    hitY + normalY * 0.55
-                            );
-                    double placeZ = hitZ + normalZ * 0.55;
-
-                    BlockPos placePos = BlockPos.containing(
-                            placeX,
-                            placeY,
-                            placeZ
-                    );
-                    Direction face = Direction.getNearest(
-                            normalX,
-                            normalY,
-                            normalZ
-                    );
-
-                    BlockHitResult synthetic =
-                            new BlockHitResult(
-                                    new Vec3(
-                                            placeX,
-                                            placeY,
-                                            placeZ
-                                    ),
-                                    face,
-                                    placePos,
-                                    false
-                            );
-
-                    client.gameMode.useItemOn(
-                            client.player,
-                            InteractionHand.MAIN_HAND,
-                            synthetic
-                    );
-                    handled = true;
+                if (!consumed && targetBlock != null) {
+                    consumed = tryUseOnBlock(client, targetBlock);
                 }
 
-                if (!handled) {
-                    client.gameMode.useItem(
-                            client.player,
-                            InteractionHand.MAIN_HAND
+                if (!consumed && hostHit) {
+                    BlockHitResult synthetic = syntheticSm64Hit(
+                            hitX, hitY, hitZ,
+                            normalX, normalY, normalZ
                     );
+                    consumed = tryUseOnBlock(client, synthetic);
                 }
 
-                client.player.swing(InteractionHand.MAIN_HAND);
-                usingItem = true;
+                if (!consumed) {
+                    consumed = tryUseInAir(client);
+                }
+
+                usingItem = client.player.isUsingItem();
+
+                /*
+                 * Some instant-use actions do not enter the using-item state
+                 * but still need the normal hand swing.
+                 */
+                if (consumed && !usingItem) {
+                    client.player.swing(InteractionHand.MAIN_HAND);
+                }
             }
 
-            if (!useDown && usingItem) {
-                client.gameMode.releaseUsingItem(client.player);
-                usingItem = false;
+            if (!useDown) {
+                releaseUsing(client);
             }
         });
+    }
+
+    private static void startDestroying(
+            Minecraft client,
+            BlockHitResult hit
+    ) {
+        BlockPos pos = hit.getBlockPos();
+        Direction face = hit.getDirection();
+
+        destroyingBlock = client.gameMode.startDestroyBlock(
+                pos,
+                face
+        );
+        destroyingPos = destroyingBlock ? pos.immutable() : null;
+        destroyingFace = destroyingBlock ? face : null;
+    }
+
+    private static void stopDestroying(Minecraft client) {
+        if (destroyingBlock && client.gameMode != null) {
+            client.gameMode.stopDestroyBlock();
+        }
+        destroyingBlock = false;
+        destroyingPos = null;
+        destroyingFace = null;
+    }
+
+    private static void releaseUsing(Minecraft client) {
+        if (usingItem
+                && client.gameMode != null
+                && client.player != null) {
+            client.gameMode.releaseUsingItem(client.player);
+        }
+        usingItem = false;
+    }
+
+    private static boolean tryInteractEntity(
+            Minecraft client,
+            EntityHitResult hit
+    ) {
+        for (InteractionHand hand : InteractionHand.values()) {
+            InteractionResult result = client.gameMode.interact(
+                    client.player,
+                    hit.getEntity(),
+                    hand
+            );
+            if (result.consumesAction()) {
+                client.player.swing(hand);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean tryUseOnBlock(
+            Minecraft client,
+            BlockHitResult hit
+    ) {
+        for (InteractionHand hand : InteractionHand.values()) {
+            InteractionResult result = client.gameMode.useItemOn(
+                    client.player,
+                    hand,
+                    hit
+            );
+            if (result.consumesAction()) {
+                client.player.swing(hand);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean tryUseInAir(Minecraft client) {
+        for (InteractionHand hand : InteractionHand.values()) {
+            InteractionResult result = client.gameMode.useItem(
+                    client.player,
+                    hand
+            );
+            if (result.consumesAction()) {
+                client.player.swing(hand);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static BlockHitResult syntheticSm64Hit(
+            double hitX,
+            double hitY,
+            double hitZ,
+            float normalX,
+            float normalY,
+            float normalZ
+    ) {
+        /*
+         * Convert the native SM64 triangle hit into the hidden overlay world's
+         * block grid. Offset outward so a BlockItem sees the voxel immediately
+         * outside the original SM64 surface.
+         */
+        double placeX = hitX + normalX * 0.55;
+        double placeY = Sm64VisualSync.renderY(
+                hitY + normalY * 0.55
+        );
+        double placeZ = hitZ + normalZ * 0.55;
+
+        BlockPos placePos = BlockPos.containing(
+                placeX,
+                placeY,
+                placeZ
+        );
+        Direction face = Direction.getNearest(
+                normalX,
+                normalY,
+                normalZ
+        );
+
+        return new BlockHitResult(
+                new Vec3(placeX, placeY, placeZ),
+                face,
+                placePos,
+                false
+        );
     }
 
     private static double clamp01(double value) {

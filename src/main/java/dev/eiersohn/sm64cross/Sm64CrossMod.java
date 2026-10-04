@@ -1,13 +1,18 @@
 package dev.eiersohn.sm64cross;
 
 import net.fabricmc.api.ModInitializer;
+import dev.eiersohn.sm64cross.terrain.Sm64CollisionBlock;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.minecraft.core.Registry;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockBehaviour;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,6 +26,27 @@ public final class Sm64CrossMod implements ModInitializer {
      * vanilla's legal build range while leaving room below and above it.
      */
     public static final double OVERLAY_ORIGIN_Y = 128.0;
+
+    /**
+     * Invisible dynamic collision block used only to expose native SM64
+     * surfaces to Minecraft's vanilla movement/collision engine.
+     */
+    public static final Block SM64_COLLISION = Registry.register(
+            BuiltInRegistries.BLOCK,
+            ResourceLocation.fromNamespaceAndPath(
+                    MOD_ID,
+                    "sm64_collision"
+            ),
+            new Sm64CollisionBlock(
+                    BlockBehaviour.Properties.of()
+                            .noOcclusion()
+                            .dynamicShape()
+                            .noLootTable()
+                            .replaceable()
+                            .noTerrainParticles()
+                            .strength(-1.0f, 3600000.0f)
+            )
+    );
 
     public static final ResourceKey<Level> OVERLAY_LEVEL =
             ResourceKey.create(

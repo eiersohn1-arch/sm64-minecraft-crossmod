@@ -1,53 +1,65 @@
-# SM64 runtime + Minecraft passthrough
+# Minecraft-authoritative SM64 passthrough
 
-The old Minecraft-block recreation is archived on `legacy-block-prototype`.
+The crossmod runs the real Minecraft 1.21.1 client/integrated server and the
+real SM64 PC runtime at the same time, but assigns each system one clear owner.
 
-The current architecture follows Universal Modder's passthrough pattern: two real game runtimes execute at once and exchange state, events and rendered layers.
+## Minecraft owns moment-to-moment player gameplay
 
-## SM64 is authoritative for the whole original game
+Minecraft owns:
 
-SM64 owns:
+- WASD movement, acceleration, friction and gravity;
+- jump, sprint and crouch;
+- mouse yaw/pitch using the player's real Minecraft sensitivity and invert-Y;
+- first/third person player rendering;
+- hand, hotbar, inventory and GUI;
+- ItemStacks, tools, weapons, blocks and BlockEntities;
+- mining, placement, use, food, hunger and normal Minecraft entities.
 
-- Peach's Castle and every original course/secret stage
-- all original geometry, textures, actors, bosses and music
-- movement physics and collision
-- swimming, slopes, quicksand, cannons, poles and moving platforms
-- doors, paintings, warps and cutscenes
-- mission selection
-- all 120 Stars and course/secret progression
-- Bowser keys and Grand Star
-- save data, death and respawn
+The SM64 host captures input because it is the focused visible window, but it
+forwards raw movement state and raw mouse delta into Minecraft. It does not run
+a second imitation movement controller.
 
-Mario still exists internally because the original runtime expects him. His model is hidden while connected; his native state is the collision/interaction body represented visually by Steve.
+## SM64 owns its original world and progression
 
-## Minecraft contributes the player presentation and item layer
+SM64 still owns the authored game:
 
-Minecraft supplies:
+- Peach's Castle and every original course;
+- original geometry, textures, objects, enemies and bosses;
+- stars, acts, Red Coins, Bowser keys and save data;
+- doors, paintings, warps and cutscenes;
+- music and original mission logic.
 
-- Steve/Alex/custom skin
-- Minecraft hotbar and inventory
-- held tools and weapons
-- HUD
-- Minecraft item-use/attack events
-- future Minecraft projectiles, blocks and effects
+Mario remains as an invisible native interaction/mission proxy. Minecraft's
+real player position and velocity are mirrored into that proxy; native SM64
+code can process stars, doors and object interactions, then the proxy is snapped
+back to Minecraft's authoritative pose.
 
-Minecraft does **not** drive Mario by teleporting coordinates. It sends input. SM64 runs its normal controller/action/physics code, then sends the resulting authoritative player and camera pose back to Minecraft for rendering.
+## SM64 geometry becomes Minecraft collision, not Minecraft scenery
 
-## Universal Modder transport
+The original level is not rebuilt visually from cubes. Instead the host samples
+nearby SM64 collision and streams invisible dynamic Minecraft VoxelShapes:
 
-The exact reference repository is cloned with:
+- four sub-cell floor samples per block for smoother slopes;
+- thin wall slices located on the SM64 wall plane;
+- exact-height ceiling slices.
 
-`git clone https://github.com/rehan-remade/universal-modder`
+The special `sm64cross:sm64_collision` block renders nothing, has no selection
+outline and is replaceable by real player-built blocks. Its collision shape is
+dynamic, so vanilla Minecraft movement and entities physically inhabit the
+native SM64 course without showing a voxel copy of that course.
 
-Reference example:
+Minecraft blocks are streamed in the opposite direction as their real
+VoxelShape AABBs so the SM64 mission proxy and native objects can collide with
+player construction.
 
-`examples/minecraft-gta5-passthrough`
+## Rendering
 
-The crossmod uses the same split:
+The hidden Minecraft client exports world colour/depth plus a transparent
+hand/HUD/GUI layer through `Local\\MCPassthroughFrame`. SM64's D3D11 renderer
+depth-composites those layers into the single visible SM64 window.
 
-- localhost WebSocket on `127.0.0.1:25599` for camera/state/input/item events;
-- named shared-memory ring `Local\MCPassthroughFrame` for Minecraft colour/depth/overlay frames;
-- host-side depth compositor;
-- event adapters that turn Minecraft item actions into host-game effects.
+Transport follows the Universal Modder passthrough pattern:
 
-The setup copies Universal Modder's own `ws.h` and `ws.cpp` directly from the clone into the SM64 build.
+- localhost WebSocket for state/events/input/collision;
+- shared-memory frame ring for GPU output;
+- host-side depth composition and reprojection.

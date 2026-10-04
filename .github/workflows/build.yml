@@ -48,6 +48,11 @@ jobs:
           grep -q 'case "look"' src/client/java/dev/eiersohn/sm64cross/client/bridge/GuestCommandHandler.java
           grep -q "sensitivity().get()" src/client/java/dev/eiersohn/sm64cross/client/bridge/GuestCommandHandler.java
           grep -q "look.*dx.*dy" sm64-host/crossmod_bridge.c
+          test -f src/main/java/dev/eiersohn/sm64cross/terrain/Sm64CollisionBlock.java
+          grep -q "terrain_box" sm64-host/crossmod_bridge.c
+          grep -q "terrain_box" src/client/java/dev/eiersohn/sm64cross/client/bridge/GuestCommandHandler.java
+          grep -q "dynamicShape" src/main/java/dev/eiersohn/sm64cross/Sm64CrossMod.java
+          grep -q "Shapes.or" src/client/java/dev/eiersohn/sm64cross/client/bridge/Sm64TerrainProxy.java
 
       - name: Patch a fresh upstream SM64 checkout
         run: |

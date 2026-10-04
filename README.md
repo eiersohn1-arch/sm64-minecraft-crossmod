@@ -53,7 +53,7 @@ SM64 bleibt Autorität für:
 - Kanonen und Caps
 - originale Gegner/Bosse
 - Wasser, Treibsand, Rutschen, Moving Platforms
-- originale Mario-Physik und Level-Kollision
+- originale SM64-Levelgeometrie und Missions-/Objektlogik
 - Tod/Respawn/Leben
 - Save-Daten und Progression
 - Musik und Sounds
@@ -120,13 +120,13 @@ andere originale Cutscenes behalten ihre native Kamera.
 
 ## Steuerung im sichtbaren SM64-Fenster
 
-- Maus = Kamera
-- WASD = Bewegung über originale SM64-Physik
-- Leertaste = Springen
+- Maus = echte Minecraft-Maussteuerung inklusive Minecraft-Sensitivity/Invert-Y
+- WASD = echte Minecraft-Bewegung
+- Leertaste = echter Minecraft-Sprung
 - Linksklick = Minecraft Angriff / Mining
 - Rechtsklick = Minecraft Benutzen / Block platzieren
-- Shift = Ducken/Z
-- Ctrl = Sprintstatus
+- Shift = echtes Minecraft-Schleichen
+- Ctrl = echtes Minecraft-Sprinten
 - 1..9 = Minecraft-Hotbar
 - E = Inventar / Container schließen
 - Q = Item droppen
@@ -183,19 +183,22 @@ laufen.
 
 ### SM64 -> Minecraft
 
-Für Minecraft-Mobs, Projektile und gedroppte Items wird lokal um den Spieler
-eine unsichtbare Minecraft-Collisionschale aus der echten SM64-Kollision
-erzeugt:
+Minecraft bekommt lokal um den Spieler eine unsichtbare dynamische
+`VoxelShape`-Kollisionsschicht direkt aus der echten SM64-Kollision:
 
-- Boden
-- nahe Wände
-- niedrige Decken
+- Böden werden pro Block in 2x2 Teilflächen mit ihrer tatsächlichen Höhe
+  gesampelt, sodass Schrägen nicht mehr auf volle Würfel gerundet werden;
+- Wände werden als dünne Kollisionsflächen auf der tatsächlichen
+  SM64-Wandebene gespiegelt;
+- niedrige Decken behalten ihre genaue Höhe.
 
-Dafür werden intern getrackte Barrier-Zellen verwendet. Sie werden nicht
-sichtbar gerendert und beim Crossmod-Raycast ignoriert.
+Diese Proxy-Blöcke haben **kein sichtbares Modell und keine Auswahlbox**.
+Minecraft berechnet darauf trotzdem seine normale Bewegung, Gravitation,
+Sprint-/Sneak-/Sprungphysik sowie Entity-Kollision. Echte vom Spieler gesetzte
+Minecraft-Blöcke haben immer Vorrang.
 
-Das ist absichtlich nur eine lokale Physikschale. Der SM64-Level wird **nicht**
-visuell in Minecraft-Blöcke umgewandelt.
+Der SM64-Level wird weiterhin **nicht optisch in Minecraft-Blöcke
+umgewandelt**; nur seine Physik fließt in Minecraft ein.
 
 ## Gemeinsames Health-/Hunger-System
 
@@ -210,14 +213,15 @@ Minecraft-Schaden wird aber zurück in Marios echtes Health-System übertragen:
 - Heilung wird zu SM64-`healCounter`
 - SM64 sendet den resultierenden Lebensstand wieder an Minecraft
 
-Minecraft Food/Saturation wird nicht mehr jeden Tick auf voll gesetzt.
-Sprint-Bewegung erzeugt zusätzliche Survival-Exhaustion, weil die
-Spielerbewegung aus SM64 kommt.
+Minecraft Food/Saturation wird nicht jeden Tick auf voll gesetzt.
+Weil Minecraft selbst die Bewegung simuliert, entstehen Sprint-, Sprung- und
+Bewegungs-Exhaustion über die normalen Vanilla-Systeme.
 
 ## Player-/Aim-Sync
 
-Client und integrierter Minecraft-Server werden beide an dieselbe autoritative
-SM64-Spielerposition gesetzt.
+Minecraft-Client und integrierter Server besitzen die laufende
+Spielerposition. SM64 übernimmt diese Position nur für seinen unsichtbaren
+Mario-Proxy, damit Sterne, Türen, Warps, Gegner und Missionen weiter reagieren.
 
 Das ist wichtig für:
 
@@ -231,8 +235,8 @@ Das ist wichtig für:
 
 Körper- und Blickrichtung sind getrennt:
 
-- Steve-Körper = originale Bewegungsrichtung
-- Kopf/Aim = sichtbare Kamera/Fadenkreuz
+- Steve-Körper = Minecraft-Bewegung
+- Kopf/Aim = Minecraft-Yaw/Pitch; die sichtbare SM64-Kamera folgt diesem Aim
 
 Bögen, Tridents und andere gerichtete Minecraft-Aktionen zielen dadurch nach
 der Kamera statt nur in Marios Laufrichtung.

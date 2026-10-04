@@ -38,7 +38,7 @@ extern struct CameraFOVStatus sFOVState;
 #define CROSSMOD_ATTACK_HALF_ANGLE_COS 0.35f
 #define CROSSMOD_MAX_BLOCK_BOXES 4096
 #define CROSSMOD_TERRAIN_RADIUS 8
-#define CROSSMOD_TERRAIN_INTERVAL 10
+#define CROSSMOD_TERRAIN_INTERVAL 3
 #define CROSSMOD_OVERLAY_ORIGIN_Y 128
 
 #define CROSSMOD_ENEMY_INTERACT_MASK ( \
@@ -1492,6 +1492,214 @@ static int crossmod_explode_near_mario(
     return hits;
 }
 
+static float crossmod_clamp_unit(float value) {
+    if (value < 0.0f) {
+        return 0.0f;
+    }
+    if (value > 1.0f) {
+        return 1.0f;
+    }
+    return value;
+}
+
+static void crossmod_send_terrain_box(
+        int block_x,
+        int block_y,
+        int block_z,
+        float min_x,
+        float min_y,
+        float min_z,
+        float max_x,
+        float max_y,
+        float max_z
+) {
+    min_x = crossmod_clamp_unit(min_x);
+    min_y = crossmod_clamp_unit(min_y);
+    min_z = crossmod_clamp_unit(min_z);
+    max_x = crossmod_clamp_unit(max_x);
+    max_y = crossmod_clamp_unit(max_y);
+    max_z = crossmod_clamp_unit(max_z);
+
+    if (max_x - min_x < 0.001f
+            || max_y - min_y < 0.001f
+            || max_z - min_z < 0.001f) {
+        return;
+    }
+
+    char message[256];
+    snprintf(
+            message,
+            sizeof(message),
+            "{\"t\":\"terrain_box\","
+            "\"x\":%d,\"y\":%d,\"z\":%d,"
+            "\"min\":[%.5f,%.5f,%.5f],"
+            "\"max\":[%.5f,%.5f,%.5f]}",
+            block_x,
+            block_y,
+            block_z,
+            min_x,
+            min_y,
+            min_z,
+            max_x,
+            max_y,
+            max_z
+    );
+    crossmod_ws_send(message);
+}
+
+static void crossmod_send_floor_sample(
+        int block_x,
+        int block_z,
+        int sub_x,
+        int sub_z,
+        float floor_y
+) {
+    const float subdivision = 2.0f;
+    float minecraft_floor =
+            floor_y / CROSSMOD_SCALE
+            + (float) CROSSMOD_OVERLAY_ORIGIN_Y;
+
+    /*
+     * Put integer-height floors in the block below them so the collision top
+     * remains exactly on the SM64 plane instead of moving one block upward.
+     */
+    int block_y = (int) floorf(minecraft_floor - 0.0001f);
+    float top = minecraft_floor - (float) block_y;
+    top = crossmod_clamp_unit(top);
+
+    if (top < 0.01f) {
+        top = 0.01f;
+    }
+
+    float min_x = (float) sub_x / subdivision;
+    float max_x = (float) (sub_x + 1) / subdivision;
+    float min_z = (float) sub_z / subdivision;
+    float max_z = (float) (sub_z + 1) / subdivision;
+
+    crossmod_send_terrain_box(
+            block_x,
+            block_y,
+            block_z,
+            min_x,
+            0.0f,
+            min_z,
+            max_x,
+            top,
+            max_z
+    );
+}
+
+static void crossmod_send_wall_sample(
+        const struct Surface *surface,
+        int block_x,
+        int block_z,
+        float sample_x,
+        float wall_y,
+        float sample_z
+) {
+    if (surface == NULL) {
+        return;
+    }
+
+    float minecraft_y =
+            wall_y / CROSSMOD_SCALE
+            + (float) CROSSMOD_OVERLAY_ORIGIN_Y;
+    int block_y = (int) floorf(minecraft_y);
+
+    const float half_thickness = 0.055f;
+    float normal_x = surface->normal.x;
+    float normal_z = surface->normal.z;
+
+    if (fabsf(normal_x) >= fabsf(normal_z)
+            && fabsf(normal_x) > 0.001f) {
+        float wall_x = -(
+                surface->normal.y * wall_y
+                + surface->normal.z * sample_z
+                + surface->originOffset
+        ) / normal_x;
+
+        float local_x =
+                wall_x / CROSSMOD_SCALE
+                - (float) block_x;
+
+        if (local_x < -0.20f || local_x > 1.20f) {
+            return;
+        }
+
+        local_x = crossmod_clamp_unit(local_x);
+
+        crossmod_send_terrain_box(
+                block_x,
+                block_y,
+                block_z,
+                local_x - half_thickness,
+                0.0f,
+                0.0f,
+                local_x + half_thickness,
+                1.0f,
+                1.0f
+        );
+        return;
+    }
+
+    if (fabsf(normal_z) > 0.001f) {
+        float wall_z = -(
+                surface->normal.x * sample_x
+                + surface->normal.y * wall_y
+                + surface->originOffset
+        ) / normal_z;
+
+        float minecraft_z = -wall_z / CROSSMOD_SCALE;
+        float local_z =
+                minecraft_z - (float) block_z;
+
+        if (local_z < -0.20f || local_z > 1.20f) {
+            return;
+        }
+
+        local_z = crossmod_clamp_unit(local_z);
+
+        crossmod_send_terrain_box(
+                block_x,
+                block_y,
+                block_z,
+                0.0f,
+                0.0f,
+                local_z - half_thickness,
+                1.0f,
+                1.0f,
+                local_z + half_thickness
+        );
+    }
+}
+
+static void crossmod_send_ceiling_sample(
+        int block_x,
+        int block_z,
+        float ceil_y
+) {
+    float minecraft_ceil =
+            ceil_y / CROSSMOD_SCALE
+            + (float) CROSSMOD_OVERLAY_ORIGIN_Y;
+    int block_y = (int) floorf(minecraft_ceil);
+    float bottom =
+            crossmod_clamp_unit(
+                    minecraft_ceil - (float) block_y
+            );
+
+    crossmod_send_terrain_box(
+            block_x,
+            block_y,
+            block_z,
+            0.0f,
+            bottom,
+            0.0f,
+            1.0f,
+            1.0f,
+            1.0f
+    );
+}
+
 static void crossmod_publish_terrain_proxy(
         const struct MarioState *m
 ) {
@@ -1530,6 +1738,48 @@ static void crossmod_publish_terrain_proxy(
             int block_x = center_x + dx;
             int block_z = center_z + dz;
 
+            /*
+             * Four quarter-cell samples retain the exact floor height inside
+             * a Minecraft block. Slopes therefore feel like the SM64 triangle
+             * surface instead of one-block-tall staircase chunks.
+             */
+            for (int sub_z = 0; sub_z < 2; ++sub_z) {
+                for (int sub_x = 0; sub_x < 2; ++sub_x) {
+                    float sample_x =
+                            ((float) block_x
+                                + ((float) sub_x + 0.5f) / 2.0f)
+                            * CROSSMOD_SCALE;
+                    float sample_z =
+                            -((float) block_z
+                                + ((float) sub_z + 0.5f) / 2.0f)
+                            * CROSSMOD_SCALE;
+
+                    struct Surface *floor = NULL;
+                    float floor_y = find_floor(
+                            sample_x,
+                            m->pos[1] + 500.0f,
+                            sample_z,
+                            &floor
+                    );
+
+                    if (floor == NULL
+                            || (floor->flags & SURFACE_FLAG_DYNAMIC)
+                            || fabsf(
+                                floor_y - m->pos[1]
+                            ) > 700.0f) {
+                        continue;
+                    }
+
+                    crossmod_send_floor_sample(
+                            block_x,
+                            block_z,
+                            sub_x,
+                            sub_z,
+                            floor_y
+                    );
+                }
+            }
+
             float sample_x =
                     ((float) block_x + 0.5f)
                     * CROSSMOD_SCALE;
@@ -1537,46 +1787,24 @@ static void crossmod_publish_terrain_proxy(
                     -((float) block_z + 0.5f)
                     * CROSSMOD_SCALE;
 
-            struct Surface *floor = NULL;
+            struct Surface *center_floor = NULL;
             float floor_y = find_floor(
                     sample_x,
                     m->pos[1] + 500.0f,
                     sample_z,
-                    &floor
+                    &center_floor
             );
 
-            if (floor == NULL
-                    || (floor->flags & SURFACE_FLAG_DYNAMIC)
+            if (center_floor == NULL
+                    || (center_floor->flags
+                        & SURFACE_FLAG_DYNAMIC)
                     || fabsf(floor_y - m->pos[1]) > 700.0f) {
                 continue;
             }
 
-            float minecraft_floor =
-                    floor_y / CROSSMOD_SCALE
-                    + (float) CROSSMOD_OVERLAY_ORIGIN_Y;
-
             /*
-             * A barrier block's upper face is y+1. Choose the nearest
-             * integer top to approximate native sloped SM64 ground.
-             */
-            int block_y =
-                    (int) lroundf(minecraft_floor) - 1;
-
-            snprintf(
-                    message,
-                    sizeof(message),
-                    "{\"t\":\"terrain\","
-                    "\"x\":%d,\"y\":%d,\"z\":%d}",
-                    block_x,
-                    block_y,
-                    block_z
-            );
-            crossmod_ws_send(message);
-
-            /*
-             * Local wall shell for Minecraft entities. Four vertical samples
-             * are enough for ordinary mobs/projectiles while keeping the host
-             * work bounded. Only original/static SM64 walls are mirrored.
+             * Stream thin wall slices on the actual triangle plane rather
+             * than marking the entire voxel as solid.
              */
             for (int layer = 0; layer < 4; ++layer) {
                 float wall_y =
@@ -1589,37 +1817,24 @@ static void crossmod_publish_terrain_proxy(
                 wall.y = wall_y;
                 wall.z = sample_z;
                 wall.offsetY = 0.0f;
-                wall.radius = 42.0f;
+                wall.radius = 48.0f;
 
                 if (find_wall_collisions(&wall) > 0
                         && wall.numWalls > 0
                         && wall.walls[0] != NULL
                         && !(wall.walls[0]->flags
                             & SURFACE_FLAG_DYNAMIC)) {
-                    int wall_block_y =
-                            (int) floorf(
-                                wall_y / CROSSMOD_SCALE
-                                + (float) CROSSMOD_OVERLAY_ORIGIN_Y
-                            );
-
-                    snprintf(
-                            message,
-                            sizeof(message),
-                            "{\"t\":\"terrain\","
-                            "\"x\":%d,\"y\":%d,\"z\":%d}",
+                    crossmod_send_wall_sample(
+                            wall.walls[0],
                             block_x,
-                            wall_block_y,
-                            block_z
+                            block_z,
+                            sample_x,
+                            wall_y,
+                            sample_z
                     );
-                    crossmod_ws_send(message);
                 }
             }
 
-            /*
-             * Mirror nearby low ceilings as a single invisible voxel layer.
-             * High sky/room ceilings do not need to be streamed for local
-             * entity physics.
-             */
             struct Surface *ceil = NULL;
             float ceil_y = find_ceil(
                     sample_x,
@@ -1632,22 +1847,11 @@ static void crossmod_publish_terrain_proxy(
                     && !(ceil->flags & SURFACE_FLAG_DYNAMIC)
                     && ceil_y > floor_y + 80.0f
                     && ceil_y < floor_y + 650.0f) {
-                int ceil_block_y =
-                        (int) floorf(
-                            ceil_y / CROSSMOD_SCALE
-                            + (float) CROSSMOD_OVERLAY_ORIGIN_Y
-                        );
-
-                snprintf(
-                        message,
-                        sizeof(message),
-                        "{\"t\":\"terrain\","
-                        "\"x\":%d,\"y\":%d,\"z\":%d}",
+                crossmod_send_ceiling_sample(
                         block_x,
-                        ceil_block_y,
-                        block_z
+                        block_z,
+                        ceil_y
                 );
-                crossmod_ws_send(message);
             }
         }
     }

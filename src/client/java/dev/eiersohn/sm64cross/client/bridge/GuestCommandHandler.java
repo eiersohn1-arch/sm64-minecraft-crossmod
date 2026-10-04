@@ -69,10 +69,28 @@ public final class GuestCommandHandler {
                     message.get("y").getAsInt(),
                     message.get("z").getAsInt()
             );
+            case "terrain_box" -> terrainBox(message);
             case "terrain_end" -> Sm64TerrainProxy.end();
             default -> {
             }
         }
+    }
+
+    private static void terrainBox(JsonObject message) {
+        var min = message.getAsJsonArray("min");
+        var max = message.getAsJsonArray("max");
+
+        Sm64TerrainProxy.box(
+                message.get("x").getAsInt(),
+                message.get("y").getAsInt(),
+                message.get("z").getAsInt(),
+                min.get(0).getAsDouble(),
+                min.get(1).getAsDouble(),
+                min.get(2).getAsDouble(),
+                max.get(0).getAsDouble(),
+                max.get(1).getAsDouble(),
+                max.get(2).getAsDouble()
+        );
     }
 
     private static void movementInput(JsonObject message) {

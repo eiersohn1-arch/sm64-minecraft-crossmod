@@ -2,6 +2,7 @@ package dev.eiersohn.sm64cross.client.render;
 
 import dev.eiersohn.sm64cross.Sm64CrossMod;
 import dev.eiersohn.sm64cross.client.bridge.HostState;
+import dev.eiersohn.sm64cross.client.bridge.Sm64TerrainProxy;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.world.phys.Vec3;
@@ -22,6 +23,9 @@ public final class Sm64VisualSync {
     private static int lastArea = Integer.MIN_VALUE;
     private static int lastCourse = Integer.MIN_VALUE;
     private static int lastAct = Integer.MIN_VALUE;
+    private static double lockX;
+    private static double lockY;
+    private static double lockZ;
 
     private Sm64VisualSync() {
     }
@@ -31,6 +35,9 @@ public final class Sm64VisualSync {
         LocalPlayer player = client.player;
 
         if (!state.connected() || player == null) {
+            if (player != null) {
+                player.setNoGravity(false);
+            }
             wasConnected = false;
             return;
         }
@@ -43,12 +50,15 @@ public final class Sm64VisualSync {
                 || state.act() != lastAct;
 
         if (contextChanged) {
-            player.setPos(
-                    state.playerX(),
-                    renderY(state.playerY()),
-                    state.playerZ()
-            );
+            Sm64TerrainProxy.invalidateForContextChange();
+
+            lockX = state.playerX();
+            lockY = renderY(state.playerY());
+            lockZ = state.playerZ();
+
+            player.setPos(lockX, lockY, lockZ);
             player.setDeltaMovement(Vec3.ZERO);
+            player.setNoGravity(true);
             player.resetFallDistance();
 
             lastLevel = state.level();
@@ -60,9 +70,22 @@ public final class Sm64VisualSync {
         wasConnected = true;
 
         /*
-         * Minecraft owns both locomotion and look rotation. Do not feed the
-         * host camera back into the player every tick: the host now follows
-         * the real Minecraft yaw/pitch published by InputPublisher.
+         * Never let vanilla gravity run before the SM64 collision snapshot is
+         * present. Without this lock the client can fall one or more blocks in
+         * the short WebSocket -> server -> block-update window at every spawn
+         * or warp, which is enough to miss the floor entirely.
+         */
+        if (!Sm64TerrainProxy.isReady()) {
+            player.setPos(lockX, lockY, lockZ);
+            player.setDeltaMovement(Vec3.ZERO);
+            player.setNoGravity(true);
+            player.resetFallDistance();
+            return;
+        }
+
+        /*
+         * Once the collision world is ready, Minecraft completely owns
+         * locomotion and look. The host merely follows the resulting pose.
          */
         player.setNoGravity(false);
     }

@@ -53,18 +53,15 @@ public final class Sm64VisualSync {
         player.yBodyRotO = player.yBodyRot;
         player.xRotO = player.getXRot();
 
-        player.setYRot(state.bodyYaw());
-        player.setYHeadRot(
-                state.viewMode() == 0
-                        ? state.yaw()
-                        : state.bodyYaw()
-        );
+        /*
+         * Vanilla separates aim/head rotation from body rotation. Keep that
+         * separation here: SM64 movement owns the body, while the crosshair
+         * camera owns Minecraft aiming, projectile launch and item use.
+         */
+        player.setYRot(state.yaw());
+        player.setYHeadRot(state.yaw());
         player.setYBodyRot(state.bodyYaw());
-        player.setXRot(
-                state.viewMode() == 0
-                        ? state.pitch()
-                        : 0.0f
-        );
+        player.setXRot(state.pitch());
         player.setShiftKeyDown(state.sneaking());
         player.setSprinting(state.sprinting());
 

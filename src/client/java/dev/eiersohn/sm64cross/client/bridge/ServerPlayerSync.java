@@ -32,8 +32,9 @@ public final class ServerPlayerSync {
         double x = state.playerX();
         double y = Sm64CrossMod.OVERLAY_ORIGIN_Y + state.playerY();
         double z = state.playerZ();
-        float yaw = state.bodyYaw();
-        float pitch = state.viewMode() == 0 ? state.pitch() : 0.0f;
+        float yaw = state.yaw();
+        float bodyYaw = state.bodyYaw();
+        float pitch = state.pitch();
         boolean sneaking = state.sneaking();
         boolean sprinting = state.sprinting();
 
@@ -55,6 +56,7 @@ public final class ServerPlayerSync {
 
             player.setYRot(yaw);
             player.setYHeadRot(yaw);
+            player.yBodyRot = bodyYaw;
             player.setXRot(pitch);
             player.setShiftKeyDown(sneaking);
             player.setSprinting(sprinting);

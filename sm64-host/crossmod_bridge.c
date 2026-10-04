@@ -103,6 +103,7 @@ static int s_prev_use_down;
 static unsigned int s_prev_slot_mask;
 static int s_prev_inventory_down;
 static int s_prev_view_down;
+static int s_prev_hud_down;
 static int s_prev_drop_down;
 static int s_prev_swap_down;
 static int s_prev_escape_down;
@@ -748,6 +749,7 @@ static void crossmod_capture_host_input(void) {
         s_prev_slot_mask = 0;
         s_prev_inventory_down = 0;
         s_prev_view_down = 0;
+        s_prev_hud_down = 0;
         s_prev_drop_down = 0;
         s_prev_swap_down = 0;
         s_prev_escape_down = 0;
@@ -804,6 +806,12 @@ static void crossmod_capture_host_input(void) {
         s_view_mode = (s_view_mode + 1) % 3;
     }
     s_prev_view_down = view_down;
+
+    int hud_down = crossmod_key_down(VK_F1);
+    if (hud_down && !s_prev_hud_down && !s_guest.screen_open) {
+        crossmod_send_simple_command("hud");
+    }
+    s_prev_hud_down = hud_down;
 
     int drop_down = crossmod_key_down('Q');
     if (drop_down && !s_prev_drop_down && !s_guest.screen_open) {

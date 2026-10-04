@@ -16,6 +16,10 @@ public final class Sm64Hud {
             }
 
             Minecraft minecraft = Minecraft.getInstance();
+            if (minecraft.options.hideGui) {
+                return;
+            }
+
             int x = 8;
             int y = 8;
             int white = 0xFFFFFFFF;

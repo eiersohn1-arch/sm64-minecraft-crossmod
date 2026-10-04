@@ -4,6 +4,7 @@ import dev.eiersohn.sm64cross.Sm64CrossMod;
 import dev.eiersohn.sm64cross.client.bridge.HostState;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.world.entity.Pose;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -12,6 +13,9 @@ import net.minecraft.world.phys.Vec3;
  * vanilla inventory/block/entity systems continue to work.
  */
 public final class Sm64VisualSync {
+    private static final int ACT_FLAG_SWIMMING = 0x00002000;
+    private static final int ACT_FLAG_SHORT_HITBOX = 0x00008000;
+
     private static double lastX;
     private static double lastY;
     private static double lastZ;
@@ -45,7 +49,7 @@ public final class Sm64VisualSync {
         player.zo = player.getZ();
 
         player.setPos(x, y, z);
-        player.setDeltaMovement(Vec3.ZERO);
+        player.setDeltaMovement(new Vec3(dx, dy, dz));
         player.setNoGravity(true);
 
         player.yRotO = player.getYRot();
@@ -64,6 +68,19 @@ public final class Sm64VisualSync {
         player.setXRot(state.pitch());
         player.setShiftKeyDown(state.sneaking());
         player.setSprinting(state.sprinting());
+
+        boolean swimming =
+                (state.marioAction() & ACT_FLAG_SWIMMING) != 0;
+        boolean shortHitbox =
+                (state.marioAction() & ACT_FLAG_SHORT_HITBOX) != 0;
+
+        if (swimming) {
+            player.setPose(Pose.SWIMMING);
+        } else if (state.sneaking() || shortHitbox) {
+            player.setPose(Pose.CROUCHING);
+        } else {
+            player.setPose(Pose.STANDING);
+        }
 
         float horizontalSpeed = (float) Math.min(
                 1.0,

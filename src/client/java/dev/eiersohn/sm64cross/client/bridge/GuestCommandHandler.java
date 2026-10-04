@@ -49,6 +49,7 @@ public final class GuestCommandHandler {
                     message.get("delta").getAsInt()
             );
             case "inventory" -> toggleInventory();
+            case "hud" -> toggleHud();
             case "pointer" -> pointer(message);
             case "action" -> gameplayAction(message);
             case "drop" -> dropItem(message);
@@ -106,6 +107,13 @@ public final class GuestCommandHandler {
                     new ServerboundSetCarriedItemPacket(selected)
             );
         });
+    }
+
+    private static void toggleHud() {
+        Minecraft client = Minecraft.getInstance();
+        client.execute(() ->
+                client.options.hideGui = !client.options.hideGui
+        );
     }
 
     private static void toggleInventory() {

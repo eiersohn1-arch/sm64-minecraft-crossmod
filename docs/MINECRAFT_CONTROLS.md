@@ -1,29 +1,27 @@
-# Minecraft controls in the visible SM64 window
+# Minecraft controls exposed by the SM64 host
 
-The visible SM64 window now owns normal Minecraft-style gameplay controls while
-the actual Minecraft window remains off-screen.
+The visible SM64 window now forwards the core Minecraft controls that would
+normally belong to the hidden GLFW window.
 
-Implemented:
+- mouse move: Minecraft-style free look
+- left click: attack/mine
+- right click: use/place/eat/drink/charge
+- mouse wheel: hotbar scroll
+- 1..9: hotbar selection
+- E: inventory/creative inventory
+- Q: drop, Ctrl+Q: drop stack
+- F: swap main/off hand
+- T: chat
+- /: command chat
+- F1: hide/show Minecraft HUD (the SM64 STAR/COINS/LIVES overlay follows it)
+- F5: first person -> third-person back -> third-person front
 
-- mouse look
-- left click attack/mine
-- right click use/place
-- WASD movement through native SM64 physics
-- Space jump
-- Shift crouch
-- Ctrl sprint state
-- 1..9 hotbar
-- E inventory / close container
-- Q drop, Ctrl+Q drop stack
-- F swap offhand
-- F5 perspective: first person -> third person back -> third person front
-- T chat
-- slash/command key opens command chat
-- Escape closes the active Minecraft screen
+First-person hand/item rendering is the real vanilla ItemInHandRenderer.
+Third-person Steve/skin/armor/cape/elytra/held items are the real vanilla
+player renderer.
 
-When any Minecraft Screen is open, Windows key press/release transitions are
-forwarded to that hidden Screen. Unicode text is generated with Win32
-`ToUnicode`, so text input follows the user's Windows keyboard layout rather
-than assuming US QWERTY. This lets vanilla text fields, chat, Creative search,
-anvils and similar GUIs receive keyboard input even though Minecraft itself is
-not the focused OS window.
+The local player's visual pose is now also derived from the native SM64 action
+flags. Swimming actions use Minecraft's SWIMMING pose, short-hitbox/crouch
+actions use CROUCHING, and ordinary actions use STANDING. Real host motion is
+fed into the client entity's delta movement so vanilla animation code has
+movement information even though SM64 remains the authoritative physics body.

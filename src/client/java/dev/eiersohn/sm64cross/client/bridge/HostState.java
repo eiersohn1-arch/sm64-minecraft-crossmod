@@ -128,6 +128,7 @@ public final class HostState {
                     1,
                     0.0, 0.0, 0.0,
                     0.0f,
+                    0, false, false,
                     -1, -1, -1, -1,
                     0, 0, 0L, 0L,
                     0, 4, 0, 0,

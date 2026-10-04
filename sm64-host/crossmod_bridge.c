@@ -27,6 +27,7 @@
 #include "engine/graph_node.h"
 #include "object_constants.h"
 #include "object_fields.h"
+#include "surface_terrains.h"
 
 extern struct CameraFOVStatus sFOVState;
 

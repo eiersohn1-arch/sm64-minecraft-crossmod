@@ -98,6 +98,12 @@ static int s_prev_attack_down;
 static int s_prev_use_down;
 static unsigned int s_prev_slot_mask;
 static int s_prev_inventory_down;
+static int s_prev_view_down;
+static int s_mouse_ready;
+static int s_view_initialized;
+static int s_view_mode = 1; /* 0=first, 1=third-back, 2=third-front */
+static float s_view_yaw;
+static float s_view_pitch;
 
 static unsigned long s_last_processed_attack_serial;
 static unsigned long s_last_processed_use_serial;
@@ -477,6 +483,69 @@ static void crossmod_send_gameplay_action(void) {
     crossmod_ws_send(message);
 }
 
+static void crossmod_update_mouse_look(void) {
+    if (s_guest.screen_open) {
+        s_mouse_ready = 0;
+        return;
+    }
+
+    HWND window = GetForegroundWindow();
+    if (window == NULL) {
+        s_mouse_ready = 0;
+        return;
+    }
+
+    RECT rect;
+    if (!GetClientRect(window, &rect)) {
+        return;
+    }
+
+    POINT center;
+    center.x = (rect.right - rect.left) / 2;
+    center.y = (rect.bottom - rect.top) / 2;
+
+    POINT screen_center = center;
+    if (!ClientToScreen(window, &screen_center)) {
+        return;
+    }
+
+    POINT cursor;
+    if (!GetCursorPos(&cursor)) {
+        return;
+    }
+
+    if (!s_mouse_ready) {
+        SetCursorPos(screen_center.x, screen_center.y);
+        s_mouse_ready = 1;
+        return;
+    }
+
+    int dx = cursor.x - screen_center.x;
+    int dy = cursor.y - screen_center.y;
+
+    if (dx != 0 || dy != 0) {
+        const float sensitivity = 0.12f;
+        s_view_yaw += (float) dx * sensitivity;
+        s_view_pitch += (float) dy * sensitivity;
+
+        if (s_view_pitch < -89.0f) {
+            s_view_pitch = -89.0f;
+        }
+        if (s_view_pitch > 89.0f) {
+            s_view_pitch = 89.0f;
+        }
+
+        while (s_view_yaw > 180.0f) {
+            s_view_yaw -= 360.0f;
+        }
+        while (s_view_yaw < -180.0f) {
+            s_view_yaw += 360.0f;
+        }
+    }
+
+    SetCursorPos(screen_center.x, screen_center.y);
+}
+
 static void crossmod_capture_host_input(void) {
     if (!crossmod_host_has_focus()) {
         s_host_keys = 0;
@@ -486,6 +555,8 @@ static void crossmod_capture_host_input(void) {
         s_prev_use_down = 0;
         s_prev_slot_mask = 0;
         s_prev_inventory_down = 0;
+        s_prev_view_down = 0;
+        s_mouse_ready = 0;
         return;
     }
 
@@ -529,7 +600,15 @@ static void crossmod_capture_host_input(void) {
     }
     s_prev_inventory_down = inventory_down;
 
+    int view_down = crossmod_key_down(VK_F5);
+    if (view_down && !s_prev_view_down && !s_guest.screen_open) {
+        s_view_mode = (s_view_mode + 1) % 3;
+    }
+    s_prev_view_down = view_down;
+
     if (!s_guest.screen_open) {
+        crossmod_update_mouse_look();
+
         unsigned int slot_mask = 0;
 
         for (int slot = 0; slot < 9; ++slot) {
@@ -982,6 +1061,105 @@ static void crossmod_process_combat(struct MarioState *m) {
     }
 }
 
+static void send_state(const struct MarioState *m);
+
+void crossmod_bridge_override_camera(struct Camera *camera) {
+    if (!s_has_guest
+            || camera == NULL
+            || gMarioState == NULL) {
+        return;
+    }
+
+    if (!s_view_initialized) {
+        float dx =
+                gLakituState.curFocus[0]
+                - gLakituState.curPos[0];
+        float dy =
+                gLakituState.curFocus[1]
+                - gLakituState.curPos[1];
+        float dz =
+                gLakituState.curFocus[2]
+                - gLakituState.curPos[2];
+        float horizontal = sqrtf(dx * dx + dz * dz);
+
+        s_view_yaw =
+                atan2f(-dx, dz) * 57.295779513f;
+        s_view_pitch =
+                -atan2f(
+                    dy,
+                    horizontal > 0.0001f
+                        ? horizontal
+                        : 0.0001f
+                ) * 57.295779513f;
+        s_view_initialized = 1;
+    }
+
+    /*
+     * Never replace authored SM64 cutscene cameras. Star grabs, doors,
+     * Bowser scenes and course transitions stay 100% original.
+     */
+    if (camera->cutscene == 0 && !s_guest.screen_open) {
+        const float d2r =
+                3.14159265358979323846f / 180.0f;
+        float yaw = s_view_yaw * d2r;
+        float pitch = s_view_pitch * d2r;
+
+        float cp = cosf(pitch);
+        float forward_x = -sinf(yaw) * cp;
+        float forward_y = -sinf(pitch);
+        float forward_z = cosf(yaw) * cp;
+
+        Vec3f focus;
+        Vec3f pos;
+
+        focus[0] = gMarioState->pos[0];
+        focus[1] = gMarioState->pos[1] + 120.0f;
+        focus[2] = gMarioState->pos[2];
+
+        if (s_view_mode == 0) {
+            /*
+             * Minecraft-style first person: camera sits at Steve/Mario eye
+             * height and the Minecraft hand/item is composited screen-space.
+             */
+            pos[0] = gMarioState->pos[0];
+            pos[1] = gMarioState->pos[1] + 150.0f;
+            pos[2] = gMarioState->pos[2];
+
+            focus[0] = pos[0] + forward_x * 1000.0f;
+            focus[1] = pos[1] + forward_y * 1000.0f;
+            focus[2] = pos[2] + forward_z * 1000.0f;
+
+            sFOVState.fov = 70.0f;
+        } else if (s_view_mode == 2) {
+            /* Minecraft third-person front. */
+            pos[0] = focus[0] + forward_x * 520.0f;
+            pos[1] = focus[1] + forward_y * 520.0f;
+            pos[2] = focus[2] + forward_z * 520.0f;
+
+            sFOVState.fov = 60.0f;
+        } else {
+            /* Minecraft third-person back. */
+            pos[0] = focus[0] - forward_x * 650.0f;
+            pos[1] = focus[1] - forward_y * 650.0f;
+            pos[2] = focus[2] - forward_z * 650.0f;
+
+            sFOVState.fov = 60.0f;
+        }
+
+        vec3f_copy(camera->pos, pos);
+        vec3f_copy(camera->focus, focus);
+        vec3f_copy(gLakituState.goalPos, pos);
+        vec3f_copy(gLakituState.curPos, pos);
+        vec3f_copy(gLakituState.pos, pos);
+        vec3f_copy(gLakituState.goalFocus, focus);
+        vec3f_copy(gLakituState.curFocus, focus);
+        vec3f_copy(gLakituState.focus, focus);
+        gLakituState.roll = 0;
+    }
+
+    send_state(gMarioState);
+}
+
 static void send_state(const struct MarioState *m) {
     if (m == NULL) {
         return;
@@ -1054,7 +1232,7 @@ static void send_state(const struct MarioState *m) {
             "{\"t\":\"cam\",\"f\":%lu,"
             "\"p\":[%.6f,%.6f,%.6f],"
             "\"r\":[%.4f,%.4f,0.0],"
-            "\"fov\":%.3f,"
+            "\"fov\":%.3f,\"view\":%d,"
             "\"pl\":[%.6f,%.6f,%.6f],"
             "\"h\":%.4f,"
             "\"level\":%d,\"area\":%d,\"course\":%d,\"act\":%d,"
@@ -1069,6 +1247,7 @@ static void send_state(const struct MarioState *m) {
             yaw,
             pitch,
             (double) sFOVState.fov,
+            s_view_mode,
             m->pos[0] / CROSSMOD_SCALE,
             m->pos[1] / CROSSMOD_SCALE,
             -m->pos[2] / CROSSMOD_SCALE,
@@ -1104,7 +1283,6 @@ void crossmod_bridge_after_mario_update(struct MarioState *m) {
     m->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;
 
     crossmod_process_combat(m);
-    send_state(m);
 }
 
 

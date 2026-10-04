@@ -441,7 +441,10 @@ public final class Sm64FrameExporter {
         shared.putFloat(desc + 72, pose.yaw());
         shared.putFloat(desc + 76, pose.pitch());
         shared.putFloat(desc + 80, pose.roll());
-        shared.putInt(desc + 84, 0);
+        shared.putInt(
+                desc + 84,
+                pose.viewMode() == 0 ? 1 : 0
+        );
         shared.putLong(desc + 88, capture.captureNanos);
         shared.putLong(desc + 96, System.nanoTime());
 

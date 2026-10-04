@@ -167,6 +167,7 @@ def install_bridge() -> None:
     pc_main = SM64_PORT / "src" / "pc" / "pc_main.c"
     mario = SM64_PORT / "src" / "game" / "mario.c"
     game_init = SM64_PORT / "src" / "game" / "game_init.c"
+    camera = SM64_PORT / "src" / "game" / "camera.c"
     hud = SM64_PORT / "src" / "game" / "hud.c"
     object_list_processor = (
         SM64_PORT / "src" / "game" / "object_list_processor.c"
@@ -239,6 +240,21 @@ def install_bridge() -> None:
         mario,
         '#include "rumble_init.h"\n',
         '#include "rumble_init.h"\n#include "pc/crossmod_bridge.h"\n',
+    )
+
+    patch_once(
+        camera,
+        '#include "surface_collision.h"\n',
+        '#include "surface_collision.h"\n#include "pc/crossmod_bridge.h"\n',
+    )
+
+    patch_once(
+        camera,
+        "    update_lakitu(c);\n\n"
+        "    gLakituState.lastFrameAction = sMarioCamState->action;",
+        "    update_lakitu(c);\n"
+        "    crossmod_bridge_override_camera(c);\n\n"
+        "    gLakituState.lastFrameAction = sMarioCamState->action;",
     )
 
     patch_once(

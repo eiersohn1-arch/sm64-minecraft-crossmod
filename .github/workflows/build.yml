@@ -86,6 +86,7 @@ jobs:
           PY
           grep -q "crossmod_bridge_apply_controller(gPlayer1Controller)" vendor/sm64-port/src/game/game_init.c
           grep -q "crossmod_bridge_after_mario_update(gMarioState)" vendor/sm64-port/src/game/mario.c
+          grep -q "crossmod_bridge_override_camera(c)" vendor/sm64-port/src/game/camera.c
           grep -q "crossmod_bridge_load_block_surfaces" vendor/sm64-port/src/game/object_list_processor.c
           grep -q "crossmod_add_dynamic_box" vendor/sm64-port/src/engine/surface_load.c
           grep -q "crossmod_bridge_poll" vendor/sm64-port/src/pc/pc_main.c

@@ -45,11 +45,12 @@ abstract class Sm64GameRendererMixin {
             Matrix4f projectionMatrix,
             CallbackInfo ci
     ) {
-        if (HostState.connected()) {
+        HostState.State state = HostState.latest();
+        if (state.connected() && state.viewMode() != 0) {
             /*
-             * Steve is already rendered as the detached local-player entity.
-             * His selected item therefore appears in his model's hand.
-             * Do not add a second first-person hand on top of the host scene.
+             * Third-person already renders the selected item on Steve's body.
+             * In first-person we deliberately allow vanilla's actual hand and
+             * ItemInHandRenderer to run after the world capture.
              */
             ci.cancel();
         }

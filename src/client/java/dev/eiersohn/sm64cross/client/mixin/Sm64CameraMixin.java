@@ -43,8 +43,11 @@ abstract class Sm64CameraMixin {
         );
         setRotation(state.yaw(), state.pitch());
 
-        // Same idea as universal-modder PlayerSync: force third-person body
-        // rendering while the host controls the actual camera pose.
-        this.detached = true;
+        /*
+         * F5 mode is owned by the visible SM64 host. First-person keeps the
+         * local player attached so vanilla renders the real hand/item.
+         * Both third-person modes detach it so Steve's full body is visible.
+         */
+        this.detached = state.viewMode() != 0;
     }
 }

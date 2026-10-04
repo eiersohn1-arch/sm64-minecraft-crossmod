@@ -9,6 +9,7 @@ extern "C" {
 
 struct MarioState;
 struct Controller;
+struct Camera;
 
 struct CrossmodRenderPose {
     unsigned long frame;
@@ -33,6 +34,7 @@ bool crossmod_bridge_active(void);
  */
 void crossmod_bridge_apply_controller(struct Controller *controller);
 void crossmod_bridge_after_mario_update(struct MarioState *m);
+void crossmod_bridge_override_camera(struct Camera *camera);
 
 /* Rebuild nearby Minecraft block CollisionShapes as native SM64 surfaces. */
 void crossmod_bridge_load_block_surfaces(void);

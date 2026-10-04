@@ -33,12 +33,26 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 public final class Sm64TerrainProxy {
     private static final Set<BlockPos> active = ConcurrentHashMap.newKeySet();
     private static Map<BlockPos, List<Box>> pending;
+    private static volatile boolean collisionReady;
 
     private Sm64TerrainProxy() {
     }
 
     public static synchronized void begin() {
         pending = new HashMap<>();
+    }
+
+    /**
+     * Called before a SM64 level/area/act transition. Minecraft movement is
+     * held at the spawn pose until a fresh collision snapshot has actually
+     * been installed into the integrated server/client world.
+     */
+    public static void invalidateForContextChange() {
+        collisionReady = false;
+    }
+
+    public static boolean isReady() {
+        return collisionReady;
     }
 
     /**
@@ -156,6 +170,13 @@ public final class Sm64TerrainProxy {
 
             active.add(pos.immutable());
         }
+
+        /*
+         * The snapshot is only considered ready after every block state and
+         * every dynamic VoxelShape in the batch has been installed. This is
+         * the release point for spawn/warp gravity.
+         */
+        collisionReady = !desired.isEmpty();
     }
 
     private static VoxelShape buildShape(List<Box> boxes) {
@@ -185,6 +206,7 @@ public final class Sm64TerrainProxy {
 
     public static synchronized void clear() {
         pending = null;
+        collisionReady = false;
 
         Minecraft client = Minecraft.getInstance();
         MinecraftServer server = client.getSingleplayerServer();

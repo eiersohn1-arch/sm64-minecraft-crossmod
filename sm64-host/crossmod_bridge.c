@@ -22,6 +22,7 @@
 #include "game/object_list_processor.h"
 #include "game/save_file.h"
 #include "engine/math_util.h"
+#include "engine/surface_collision.h"
 #include "engine/graph_node.h"
 #include "object_constants.h"
 #include "object_fields.h"
@@ -47,6 +48,16 @@ extern struct CameraFOVStatus sFOVState;
     INTERACT_SHOCK | \
     INTERACT_UNKNOWN_08 \
 )
+
+struct CrossmodSurfaceHit {
+    int valid;
+    float x;
+    float y;
+    float z;
+    float nx;
+    float ny;
+    float nz;
+};
 
 struct CrossmodGuestState {
     unsigned long sequence;
@@ -225,6 +236,157 @@ static void crossmod_send_pointer(void) {
     crossmod_ws_send(message);
 }
 
+static int crossmod_pick_sm64_surface(
+        struct CrossmodSurfaceHit *hit
+) {
+    if (hit == NULL
+            || gCurrentArea == NULL
+            || gCurrentArea->camera == NULL) {
+        return 0;
+    }
+
+    float ox = gLakituState.curPos[0];
+    float oy = gLakituState.curPos[1];
+    float oz = gLakituState.curPos[2];
+
+    float dx = gLakituState.curFocus[0] - ox;
+    float dy = gLakituState.curFocus[1] - oy;
+    float dz = gLakituState.curFocus[2] - oz;
+
+    float length = sqrtf(dx * dx + dy * dy + dz * dz);
+    if (length < 0.001f) {
+        return 0;
+    }
+
+    dx /= length;
+    dy /= length;
+    dz /= length;
+
+    const float max_distance = 650.0f;
+    const float step = 20.0f;
+
+    for (float distance = 40.0f;
+         distance <= max_distance;
+         distance += step) {
+        float x = ox + dx * distance;
+        float y = oy + dy * distance;
+        float z = oz + dz * distance;
+
+        struct Surface *floor = NULL;
+        float floor_y = find_floor(
+                x,
+                y + 80.0f,
+                z,
+                &floor
+        );
+
+        if (floor != NULL
+                && fabsf(y - floor_y) <= 24.0f) {
+            hit->valid = 1;
+            hit->x = x;
+            hit->y = floor_y;
+            hit->z = z;
+            hit->nx = floor->normal.x;
+            hit->ny = floor->normal.y;
+            hit->nz = floor->normal.z;
+            return 1;
+        }
+
+        struct Surface *ceil = NULL;
+        float ceil_y = find_ceil(
+                x,
+                y - 80.0f,
+                z,
+                &ceil
+        );
+
+        if (ceil != NULL
+                && fabsf(ceil_y - y) <= 24.0f) {
+            hit->valid = 1;
+            hit->x = x;
+            hit->y = ceil_y;
+            hit->z = z;
+            hit->nx = ceil->normal.x;
+            hit->ny = ceil->normal.y;
+            hit->nz = ceil->normal.z;
+            return 1;
+        }
+
+        struct WallCollisionData wall;
+        memset(&wall, 0, sizeof(wall));
+        wall.x = x;
+        wall.y = y;
+        wall.z = z;
+        wall.offsetY = 0.0f;
+        wall.radius = 18.0f;
+
+        if (find_wall_collisions(&wall) > 0
+                && wall.numWalls > 0
+                && wall.walls[0] != NULL) {
+            struct Surface *surface = wall.walls[0];
+
+            hit->valid = 1;
+            hit->x = x;
+            hit->y = y;
+            hit->z = z;
+            hit->nx = surface->normal.x;
+            hit->ny = surface->normal.y;
+            hit->nz = surface->normal.z;
+            return 1;
+        }
+    }
+
+    memset(hit, 0, sizeof(*hit));
+    return 0;
+}
+
+static void crossmod_send_gameplay_action(void) {
+    if (!crossmod_ws_connected()
+            || s_guest.screen_open) {
+        return;
+    }
+
+    struct CrossmodSurfaceHit hit;
+    memset(&hit, 0, sizeof(hit));
+    crossmod_pick_sm64_surface(&hit);
+
+    char message[512];
+
+    if (hit.valid) {
+        snprintf(
+                message,
+                sizeof(message),
+                "{\"t\":\"action\",\"attack\":%lu,\"use\":%lu,"
+                "\"ad\":%d,\"ud\":%d,\"hit\":1,"
+                "\"p\":[%.6f,%.6f,%.6f],"
+                "\"n\":[%.6f,%.6f,%.6f]}",
+                s_attack_serial,
+                s_use_serial,
+                s_attack_down,
+                s_use_down,
+                hit.x / CROSSMOD_SCALE,
+                hit.y / CROSSMOD_SCALE,
+                -hit.z / CROSSMOD_SCALE,
+                hit.nx,
+                hit.ny,
+                -hit.nz
+        );
+    } else {
+        snprintf(
+                message,
+                sizeof(message),
+                "{\"t\":\"action\",\"attack\":%lu,\"use\":%lu,"
+                "\"ad\":%d,\"ud\":%d,\"hit\":0}",
+                s_attack_serial,
+                s_use_serial,
+                s_attack_down,
+                s_use_down
+        );
+    }
+
+    crossmod_ws_send(message);
+}
+
 static void crossmod_capture_host_input(void) {
     if (!crossmod_host_has_focus()) {
         s_host_keys = 0;
@@ -295,6 +457,10 @@ static void crossmod_capture_host_input(void) {
     } else {
         s_prev_slot_mask = 0;
         crossmod_send_pointer();
+    }
+
+    if (!s_guest.screen_open) {
+        crossmod_send_gameplay_action();
     }
 }
 

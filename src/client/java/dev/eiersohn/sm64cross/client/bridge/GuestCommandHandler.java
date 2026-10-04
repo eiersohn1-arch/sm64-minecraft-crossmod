@@ -4,6 +4,14 @@ import com.google.gson.JsonObject;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.EntityHitResult;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
 import org.lwjgl.glfw.GLFW;
 
 /**
@@ -19,6 +27,10 @@ public final class GuestCommandHandler {
     private static boolean rightDown;
     private static double lastGuiX;
     private static double lastGuiY;
+    private static long lastAttackAction = -1L;
+    private static long lastUseAction = -1L;
+    private static boolean destroyingBlock;
+    private static boolean usingItem;
 
     private GuestCommandHandler() {
     }
@@ -30,6 +42,7 @@ public final class GuestCommandHandler {
             case "slot" -> selectSlot(message.get("slot").getAsInt());
             case "inventory" -> toggleInventory();
             case "pointer" -> pointer(message);
+            case "action" -> gameplayAction(message);
             default -> {
             }
         }
@@ -156,6 +169,165 @@ public final class GuestCommandHandler {
             lastRightSerial = rightSerial;
             lastGuiX = guiX;
             lastGuiY = guiY;
+        });
+    }
+
+    private static void gameplayAction(JsonObject message) {
+        final long attackSerial =
+                message.get("attack").getAsLong();
+        final long useSerial =
+                message.get("use").getAsLong();
+        final boolean attackDown =
+                message.get("ad").getAsInt() != 0;
+        final boolean useDown =
+                message.get("ud").getAsInt() != 0;
+        final boolean hostHit =
+                message.has("hit")
+                && message.get("hit").getAsInt() != 0;
+
+        final double hitX = hostHit
+                ? message.getAsJsonArray("p").get(0).getAsDouble()
+                : 0.0;
+        final double hitY = hostHit
+                ? message.getAsJsonArray("p").get(1).getAsDouble()
+                : 0.0;
+        final double hitZ = hostHit
+                ? message.getAsJsonArray("p").get(2).getAsDouble()
+                : 0.0;
+
+        final float normalX = hostHit
+                ? message.getAsJsonArray("n").get(0).getAsFloat()
+                : 0.0f;
+        final float normalY = hostHit
+                ? message.getAsJsonArray("n").get(1).getAsFloat()
+                : 1.0f;
+        final float normalZ = hostHit
+                ? message.getAsJsonArray("n").get(2).getAsFloat()
+                : 0.0f;
+
+        Minecraft client = Minecraft.getInstance();
+        client.execute(() -> {
+            if (client.player == null
+                    || client.level == null
+                    || client.gameMode == null
+                    || client.screen != null) {
+                return;
+            }
+
+            HitResult target = client.hitResult;
+
+            if (attackSerial != lastAttackAction && attackDown) {
+                lastAttackAction = attackSerial;
+
+                if (target instanceof EntityHitResult entityHit) {
+                    Entity entity = entityHit.getEntity();
+                    client.gameMode.attack(client.player, entity);
+                    client.player.swing(InteractionHand.MAIN_HAND);
+                } else if (target instanceof BlockHitResult blockHit
+                        && target.getType() == HitResult.Type.BLOCK) {
+                    destroyingBlock = client.gameMode.startDestroyBlock(
+                            blockHit.getBlockPos(),
+                            blockHit.getDirection()
+                    );
+                    client.player.swing(InteractionHand.MAIN_HAND);
+                }
+            }
+
+            if (attackDown
+                    && destroyingBlock
+                    && target instanceof BlockHitResult blockHit
+                    && target.getType() == HitResult.Type.BLOCK) {
+                client.gameMode.continueDestroyBlock(
+                        blockHit.getBlockPos(),
+                        blockHit.getDirection()
+                );
+            } else if (!attackDown && destroyingBlock) {
+                client.gameMode.stopDestroyBlock();
+                destroyingBlock = false;
+            }
+
+            if (useSerial != lastUseAction && useDown) {
+                lastUseAction = useSerial;
+
+                boolean handled = false;
+
+                if (target instanceof EntityHitResult entityHit) {
+                    client.gameMode.interact(
+                            client.player,
+                            entityHit.getEntity(),
+                            InteractionHand.MAIN_HAND
+                    );
+                    handled = true;
+                } else if (target instanceof BlockHitResult blockHit
+                        && target.getType() == HitResult.Type.BLOCK) {
+                    client.gameMode.useItemOn(
+                            client.player,
+                            InteractionHand.MAIN_HAND,
+                            blockHit
+                    );
+                    handled = true;
+                }
+
+                if (!handled && hostHit) {
+                    /*
+                     * SM64 supplied a hit against its real triangle collision.
+                     * Convert that point into the hidden Minecraft overlay
+                     * world's block grid. The +normal*0.55 offset picks the
+                     * voxel immediately outside the SM64 surface.
+                     */
+                    double placeX = hitX + normalX * 0.55;
+                    double placeY =
+                            Sm64VisualSync.renderY(
+                                    hitY + normalY * 0.55
+                            );
+                    double placeZ = hitZ + normalZ * 0.55;
+
+                    BlockPos placePos = BlockPos.containing(
+                            placeX,
+                            placeY,
+                            placeZ
+                    );
+                    Direction face = Direction.getNearest(
+                            normalX,
+                            normalY,
+                            normalZ
+                    );
+
+                    BlockHitResult synthetic =
+                            new BlockHitResult(
+                                    new Vec3(
+                                            placeX,
+                                            placeY,
+                                            placeZ
+                                    ),
+                                    face,
+                                    placePos,
+                                    false
+                            );
+
+                    client.gameMode.useItemOn(
+                            client.player,
+                            InteractionHand.MAIN_HAND,
+                            synthetic
+                    );
+                    handled = true;
+                }
+
+                if (!handled) {
+                    client.gameMode.useItem(
+                            client.player,
+                            InteractionHand.MAIN_HAND
+                    );
+                }
+
+                client.player.swing(InteractionHand.MAIN_HAND);
+                usingItem = true;
+            }
+
+            if (!useDown && usingItem) {
+                client.gameMode.releaseUsingItem(client.player);
+                usingItem = false;
+            }
         });
     }
 

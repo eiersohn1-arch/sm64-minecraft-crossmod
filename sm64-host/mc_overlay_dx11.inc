@@ -94,6 +94,7 @@ static struct {
 
     bool window_overlay_mode = false;
     bool window_hidden = false;
+    bool host_focus_claimed = false;
     int last_window_x = 0x7fffffff;
     int last_window_y = 0x7fffffff;
     int last_window_width = 0;
@@ -120,6 +121,7 @@ static void mc_overlay_close_mapping(void) {
     mc_overlay.slots = 0;
     mc_overlay.stride = 0;
     mc_overlay.last_publish = -1;
+    mc_overlay.host_focus_claimed = false;
 }
 
 static bool mc_overlay_open_mapping(void) {
@@ -1054,6 +1056,29 @@ static void mc_overlay_build_reprojection(
 }
 
 
+static void mc_overlay_claim_host_focus(void) {
+    if (mc_overlay.host_focus_claimed) {
+        return;
+    }
+
+    HWND host = gfx_dxgi_get_h_wnd();
+    if (host == nullptr) {
+        return;
+    }
+
+    /*
+     * Minecraft backgrounds itself as soon as a playable guest world exists.
+     * Claim focus exactly once when the first guest frame reaches SM64.
+     * Do not steal focus again after the user intentionally Alt-Tabs.
+     */
+    ShowWindow(host, SW_RESTORE);
+    BringWindowToTop(host);
+    SetForegroundWindow(host);
+    SetActiveWindow(host);
+
+    mc_overlay.host_focus_claimed = true;
+}
+
 static void mc_overlay_sync_window(void) {
     if (mc_overlay.view == nullptr) {
         return;
@@ -1185,6 +1210,8 @@ static void mc_overlay_render(void) {
             || !mc_overlay_init_pipeline()) {
         return;
     }
+
+    mc_overlay_claim_host_focus();
 
     /*
      * Single-host-window mode: SM64 stays the normal visible/focused window.

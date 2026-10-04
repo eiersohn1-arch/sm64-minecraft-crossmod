@@ -6,18 +6,21 @@ import dev.eiersohn.sm64cross.Sm64CrossMod;
 import dev.eiersohn.sm64cross.client.bridge.HostLink;
 import dev.eiersohn.sm64cross.client.bridge.HostState;
 import java.nio.ByteBuffer;
-import java.nio.IntBuffer;
-import java.util.Locale;
 import net.minecraft.client.Minecraft;
-import org.lwjgl.glfw.GLFW;
-import org.lwjgl.glfw.GLFWNativeWin32;
 import org.lwjgl.opengl.GL11;
-import org.lwjgl.system.MemoryStack;
+import org.lwjgl.opengl.GL15;
+import org.lwjgl.opengl.GL21;
+import org.lwjgl.opengl.GL30;
+import org.lwjgl.opengl.GL32;
 import org.lwjgl.system.MemoryUtil;
 
 /**
- * Minecraft frame export using the same shared-memory contract as
- * universal-modder/examples/minecraft-gta5-passthrough.
+ * Universal-Modder style Minecraft frame exporter for Minecraft 1.21.1.
+ *
+ * The original 1.21.1 bridge used direct glGetTexImage(ByteBuffer) calls.
+ * Those force the render thread to wait for the GPU. This implementation uses
+ * a three-entry Pixel Buffer Object ring plus GL fences, matching the
+ * asynchronous intent of Universal Modder's newer GPU-buffer exporter.
  *
  * <pre>
  * header (4096 bytes, little endian)
@@ -39,10 +42,6 @@ import org.lwjgl.system.MemoryUtil;
  * slot data at 4096 + slot*stride:
  * world RGBA8, world depth float32, overlay RGBA8
  * </pre>
- *
- * Offsets 48..64 in the global header are a backwards-compatible SM64
- * extension containing Minecraft's window rectangle/HWND for the temporary
- * click-through host-window integration.
  */
 public final class Sm64FrameExporter {
     public static final String NAME = "Local\\MCPassthroughFrame";
@@ -61,20 +60,61 @@ public final class Sm64FrameExporter {
     public static final long MAPPING_BYTES =
             HEADER + STRIDE * SLOTS;
 
+    private static final int READBACK_RING = 3;
+
+    private static final class Capture {
+        int colorPbo;
+        int depthPbo;
+        int overlayPbo;
+        int width;
+        int height;
+        int bytes;
+        long fence;
+        boolean busy;
+        HostState.State pose;
+        long frame;
+        long captureNanos;
+
+        void allocate(int newWidth, int newHeight, int newBytes) {
+            releaseBuffers();
+
+            colorPbo = createPbo(newBytes);
+            depthPbo = createPbo(newBytes);
+            overlayPbo = createPbo(newBytes);
+            width = newWidth;
+            height = newHeight;
+            bytes = newBytes;
+        }
+
+        void releaseBuffers() {
+            if (fence != 0L) {
+                GL32.glDeleteSync(fence);
+                fence = 0L;
+            }
+            if (colorPbo != 0) {
+                GL15.glDeleteBuffers(colorPbo);
+                colorPbo = 0;
+            }
+            if (depthPbo != 0) {
+                GL15.glDeleteBuffers(depthPbo);
+                depthPbo = 0;
+            }
+            if (overlayPbo != 0) {
+                GL15.glDeleteBuffers(overlayPbo);
+                overlayPbo = 0;
+            }
+            busy = false;
+        }
+    }
+
+    private static final Capture[] captures =
+            new Capture[READBACK_RING];
+
     private static SharedMemory shared;
     private static boolean failed;
     private static boolean warnedSize;
-
-    private static ByteBuffer world;
-    private static ByteBuffer depth;
-    private static ByteBuffer overlay;
-    private static int bufferBytes;
-
-    private static int capturedWidth;
-    private static int capturedHeight;
-    private static HostState.State capturedPose;
-    private static long captureNanos;
-    private static boolean current;
+    private static int ringNext;
+    private static Capture current;
 
     private static int slotNext;
     private static long frameCounter;
@@ -84,25 +124,27 @@ public final class Sm64FrameExporter {
     }
 
     public static void captureWorld() {
-        HostState.State pose = HostState.latest();
-        if (!HostLink.connected() || !pose.connected()) {
-            current = false;
-            return;
-        }
-
         RenderSystem.assertOnRenderThread();
 
         Minecraft minecraft = Minecraft.getInstance();
+        drainReadyCaptures(minecraft);
+
+        HostState.State pose = HostState.latest();
+        if (!HostLink.connected() || !pose.connected()) {
+            current = null;
+            return;
+        }
+
         RenderTarget target = minecraft.getMainRenderTarget();
         int width = target.width;
         int height = target.height;
-        long bytes = (long) width * height * 4L;
+        long bytesLong = (long) width * height * 4L;
 
         if (width <= 0
                 || height <= 0
                 || width > MAX_WIDTH
                 || height > MAX_HEIGHT
-                || bytes > LAYER_MAX) {
+                || bytesLong > LAYER_MAX) {
             if (!warnedSize) {
                 warnedSize = true;
                 Sm64CrossMod.LOGGER.warn(
@@ -113,63 +155,130 @@ public final class Sm64FrameExporter {
                         MAX_HEIGHT
                 );
             }
-            current = false;
+            current = null;
             return;
         }
 
         if (!ensureSharedMemory()) {
-            current = false;
+            current = null;
             return;
         }
 
-        int size = Math.toIntExact(bytes);
-        ensureBuffers(size);
+        Capture capture = captures[ringNext];
+        if (capture == null) {
+            capture = new Capture();
+            captures[ringNext] = capture;
+        }
+
+        /*
+         * Never stall Minecraft waiting for an old GPU readback. If all PBO
+         * slots are still busy, simply skip this frame; the host's pose
+         * reprojection hides short gaps much better than a render-thread stall.
+         */
+        if (capture.busy) {
+            current = null;
+            return;
+        }
+
+        int bytes = Math.toIntExact(bytesLong);
+        if (capture.width != width
+                || capture.height != height
+                || capture.colorPbo == 0) {
+            capture.allocate(width, height, bytes);
+        }
 
         GL11.glPixelStorei(GL11.GL_PACK_ALIGNMENT, 1);
 
-        world.clear();
-        GL11.glBindTexture(
-                GL11.GL_TEXTURE_2D,
-                target.getColorTextureId()
-        );
-        GL11.glGetTexImage(
-                GL11.GL_TEXTURE_2D,
-                0,
+        readTextureToPbo(
+                target.getColorTextureId(),
                 GL11.GL_RGBA,
                 GL11.GL_UNSIGNED_BYTE,
-                world
+                capture.colorPbo
+        );
+        readTextureToPbo(
+                target.getDepthTextureId(),
+                GL11.GL_DEPTH_COMPONENT,
+                GL11.GL_FLOAT,
+                capture.depthPbo
         );
 
-        depth.clear();
-        GL11.glBindTexture(
-                GL11.GL_TEXTURE_2D,
-                target.getDepthTextureId()
+        capture.pose = pose;
+        capture.frame = ++frameCounter;
+        capture.captureNanos = System.nanoTime();
+        current = capture;
+
+        target.bindWrite(false);
+        clearForTransparentOverlay();
+    }
+
+    public static void captureOverlay() {
+        RenderSystem.assertOnRenderThread();
+
+        Capture capture = current;
+        current = null;
+
+        if (capture == null) {
+            drainReadyCaptures(Minecraft.getInstance());
+            return;
+        }
+
+        RenderTarget target =
+                Minecraft.getInstance().getMainRenderTarget();
+
+        if (target.width != capture.width
+                || target.height != capture.height) {
+            return;
+        }
+
+        readTextureToPbo(
+                target.getColorTextureId(),
+                GL11.GL_RGBA,
+                GL11.GL_UNSIGNED_BYTE,
+                capture.overlayPbo
         );
+
+        capture.fence = GL32.glFenceSync(
+                GL32.GL_SYNC_GPU_COMMANDS_COMPLETE,
+                0
+        );
+        capture.busy = true;
+
+        ringNext = (ringNext + 1) % READBACK_RING;
+
+        drainReadyCaptures(Minecraft.getInstance());
+    }
+
+    private static int createPbo(int bytes) {
+        int pbo = GL15.glGenBuffers();
+        GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, pbo);
+        GL15.glBufferData(
+                GL21.GL_PIXEL_PACK_BUFFER,
+                (long) bytes,
+                GL15.GL_STREAM_READ
+        );
+        GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, 0);
+        return pbo;
+    }
+
+    private static void readTextureToPbo(
+            int texture,
+            int format,
+            int type,
+            int pbo
+    ) {
+        GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, pbo);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, texture);
         GL11.glGetTexImage(
                 GL11.GL_TEXTURE_2D,
                 0,
-                GL11.GL_DEPTH_COMPONENT,
-                GL11.GL_FLOAT,
-                depth
+                format,
+                type,
+                0L
         );
+        GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, 0);
+    }
 
-        capturedWidth = width;
-        capturedHeight = height;
-        capturedPose = pose;
-        captureNanos = System.nanoTime();
-        current = true;
-
-        // Match the universal-modder split: world first, then transparent hand/HUD.
-        target.bindWrite(false);
-
-        /*
-         * glClear obeys the current colour-write mask and scissor state.
-         * Minecraft can leave either state changed by previous render passes;
-         * if alpha is masked off, clearing to transparent black leaves the old
-         * alpha=1 behind. The host then sees an opaque black fullscreen overlay.
-         *
-         * Force a true full-target RGBA clear before hand/HUD rendering.
-         */
+    private static void clearForTransparentOverlay() {
         boolean scissorWasEnabled =
                 GL11.glIsEnabled(GL11.GL_SCISSOR_TEST);
 
@@ -197,37 +306,35 @@ public final class Sm64FrameExporter {
         }
     }
 
-    public static void captureOverlay() {
-        if (!current) {
-            return;
-        }
-        current = false;
-
-        RenderSystem.assertOnRenderThread();
-
-        Minecraft minecraft = Minecraft.getInstance();
-        RenderTarget target = minecraft.getMainRenderTarget();
-
-        if (target.width != capturedWidth
-                || target.height != capturedHeight
-                || capturedPose == null) {
+    private static void drainReadyCaptures(Minecraft minecraft) {
+        if (shared == null) {
             return;
         }
 
-        overlay.clear();
-        GL11.glBindTexture(
-                GL11.GL_TEXTURE_2D,
-                target.getColorTextureId()
-        );
-        GL11.glGetTexImage(
-                GL11.GL_TEXTURE_2D,
-                0,
-                GL11.GL_RGBA,
-                GL11.GL_UNSIGNED_BYTE,
-                overlay
-        );
+        for (Capture capture : captures) {
+            if (capture == null || !capture.busy || capture.fence == 0L) {
+                continue;
+            }
 
-        publish(minecraft);
+            int status = GL32.glClientWaitSync(
+                    capture.fence,
+                    0,
+                    0L
+            );
+
+            if (status != GL32.GL_ALREADY_SIGNALED
+                    && status != GL32.GL_CONDITION_SATISFIED) {
+                continue;
+            }
+
+            try {
+                publish(minecraft, capture);
+            } finally {
+                GL32.glDeleteSync(capture.fence);
+                capture.fence = 0L;
+                capture.busy = false;
+            }
+        }
     }
 
     private static boolean ensureSharedMemory() {
@@ -249,12 +356,16 @@ public final class Sm64FrameExporter {
             shared.putInt(28, MAX_HEIGHT);
             shared.putLong(32, 0L);
             shared.putInt(40, -1);
-            shared.putInt(44, (int) ProcessHandle.current().pid());
+            shared.putInt(
+                    44,
+                    (int) ProcessHandle.current().pid()
+            );
 
             Sm64CrossMod.LOGGER.info(
-                    "Passthrough shared memory ready: {} ({} MB)",
+                    "Async MCPT readback ready: {} ({} MB, {} PBO slots)",
                     NAME,
-                    MAPPING_BYTES >> 20
+                    MAPPING_BYTES >> 20,
+                    READBACK_RING
             );
             return true;
         } catch (Throwable throwable) {
@@ -267,49 +378,43 @@ public final class Sm64FrameExporter {
         }
     }
 
-    private static void ensureBuffers(int bytes) {
-        if (world != null && bufferBytes == bytes) {
-            return;
-        }
-
-        freeBuffers();
-        world = MemoryUtil.memAlloc(bytes);
-        depth = MemoryUtil.memAlloc(bytes);
-        overlay = MemoryUtil.memAlloc(bytes);
-        bufferBytes = bytes;
-    }
-
-    private static void freeBuffers() {
-        if (world != null) MemoryUtil.memFree(world);
-        if (depth != null) MemoryUtil.memFree(depth);
-        if (overlay != null) MemoryUtil.memFree(overlay);
-        world = null;
-        depth = null;
-        overlay = null;
-        bufferBytes = 0;
-    }
-
-    private static void publish(Minecraft minecraft) {
+    private static void publish(
+            Minecraft minecraft,
+            Capture capture
+    ) {
         int slot = slotNext;
         slotNext = (slotNext + 1) % SLOTS;
 
-        long desc = SLOT_DESC + (long) SLOT_DESC_BYTES * slot;
+        long desc =
+                SLOT_DESC + (long) SLOT_DESC_BYTES * slot;
         long seq = shared.getLong(desc);
+
         if ((seq & 1L) != 0L) {
             seq++;
         }
 
-        // Mark the slot busy before touching its layers.
         shared.putLong(desc, seq + 1L);
         java.lang.invoke.VarHandle.fullFence();
 
-        long frame = ++frameCounter;
-        long layerBytes = (long) capturedWidth * capturedHeight * 4L;
+        long layerBytes =
+                (long) capture.width * capture.height * 4L;
         long base = HEADER + STRIDE * slot;
 
-        copy(base, world, Math.toIntExact(layerBytes));
-        copy(base + layerBytes, depth, Math.toIntExact(layerBytes));
-        copy(base + 2L * layerBytes, overlay, Math.toIntExact(layerBytes));
+        copyPbo(
+                capture.colorPbo,
+                base,
+                capture.bytes
+        );
+        copyPbo(
+                capture.depthPbo,
+                base + layerBytes,
+                capture.bytes
+        );
+        copyPbo(
+                capture.overlayPbo,
+                base + 2L * layerBytes,
+                capture.bytes
+        );
 
         float near = 0.05f;
         float far = Math.max(
@@ -317,18 +422,17 @@ public final class Sm64FrameExporter {
                 minecraft.gameRenderer.getRenderDistance()
         );
 
-        HostState.State pose = capturedPose;
+        HostState.State pose = capture.pose;
 
-        shared.putLong(desc + 8, frame);
+        shared.putLong(desc + 8, capture.frame);
         shared.putLong(desc + 16, pose.hostFrame());
-        shared.putInt(desc + 24, capturedWidth);
-        shared.putInt(desc + 28, capturedHeight);
+        shared.putInt(desc + 24, capture.width);
+        shared.putInt(desc + 28, capture.height);
         shared.putFloat(desc + 32, near);
         shared.putFloat(desc + 36, far);
         shared.putFloat(desc + 40, pose.fov());
 
-        // MC 1.21.1 OpenGL depth is [0,1], rows returned bottom-up,
-        // and is not reversed-Z.
+        // MC 1.21.1 OpenGL: [0,1] depth, rows bottom-up, standard Z.
         shared.putInt(desc + 44, 1 | 2);
 
         shared.putDouble(desc + 48, pose.cameraX());
@@ -338,10 +442,8 @@ public final class Sm64FrameExporter {
         shared.putFloat(desc + 76, pose.pitch());
         shared.putFloat(desc + 80, pose.roll());
         shared.putInt(desc + 84, 0);
-        shared.putLong(desc + 88, captureNanos);
+        shared.putLong(desc + 88, capture.captureNanos);
         shared.putLong(desc + 96, System.nanoTime());
-
-        publishWindowInfo(minecraft);
 
         java.lang.invoke.VarHandle.fullFence();
         shared.putLong(desc, seq + 2L);
@@ -350,45 +452,38 @@ public final class Sm64FrameExporter {
         shared.putLong(32, ++publishCounter);
     }
 
-    private static void publishWindowInfo(Minecraft minecraft) {
-        long glfwWindow = minecraft.getWindow().getWindow();
+    private static void copyPbo(
+            int pbo,
+            long sharedOffset,
+            int bytes
+    ) {
+        GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, pbo);
 
-        try (MemoryStack stack = MemoryStack.stackPush()) {
-            IntBuffer x = stack.mallocInt(1);
-            IntBuffer y = stack.mallocInt(1);
-            IntBuffer width = stack.mallocInt(1);
-            IntBuffer height = stack.mallocInt(1);
+        ByteBuffer mapped = GL30.glMapBufferRange(
+                GL21.GL_PIXEL_PACK_BUFFER,
+                0L,
+                bytes,
+                GL30.GL_MAP_READ_BIT
+        );
 
-            GLFW.glfwGetWindowPos(glfwWindow, x, y);
-            GLFW.glfwGetWindowSize(glfwWindow, width, height);
-
-            shared.putInt(48, x.get(0));
-            shared.putInt(52, y.get(0));
-            shared.putInt(56, width.get(0));
-            shared.putInt(60, height.get(0));
+        if (mapped == null) {
+            GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, 0);
+            throw new IllegalStateException(
+                    "Could not map passthrough PBO"
+            );
         }
 
-        long nativeWindow = 0L;
-        if (System.getProperty("os.name", "")
-                .toLowerCase(Locale.ROOT)
-                .contains("win")) {
-            try {
-                nativeWindow = GLFWNativeWin32
-                        .glfwGetWin32Window(glfwWindow);
-            } catch (Throwable ignored) {
-                nativeWindow = 0L;
-            }
+        try {
+            mapped.position(0);
+            mapped.limit(bytes);
+
+            ByteBuffer destination =
+                    shared.slice(sharedOffset, bytes);
+            destination.position(0);
+            destination.put(mapped);
+        } finally {
+            GL15.glUnmapBuffer(GL21.GL_PIXEL_PACK_BUFFER);
+            GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, 0);
         }
-        shared.putLong(64, nativeWindow);
-    }
-
-    private static void copy(long offset, ByteBuffer source, int bytes) {
-        ByteBuffer src = source.duplicate();
-        src.position(0);
-        src.limit(bytes);
-
-        ByteBuffer dst = shared.slice(offset, bytes);
-        dst.position(0);
-        dst.put(src);
     }
 }

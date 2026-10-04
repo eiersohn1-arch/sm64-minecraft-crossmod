@@ -1016,6 +1016,22 @@ static int crossmod_is_attackable_object(const struct Object *obj) {
     return (obj->oInteractType & CROSSMOD_ENEMY_INTERACT_MASK) != 0;
 }
 
+static void crossmod_view_forward(
+        float *x,
+        float *y,
+        float *z
+) {
+    const float d2r =
+            3.14159265358979323846f / 180.0f;
+    float yaw = s_view_yaw * d2r;
+    float pitch = s_view_pitch * d2r;
+    float cp = cosf(pitch);
+
+    *x = -sinf(yaw) * cp;
+    *y = -sinf(pitch);
+    *z = cosf(yaw) * cp;
+}
+
 static float crossmod_clamp_melee_reach(float reach_blocks) {
     float reach = reach_blocks * CROSSMOD_SCALE;
 
@@ -1043,8 +1059,14 @@ static struct Object *crossmod_find_melee_target(
 
     struct Object *best = NULL;
     float best_score = 1000000000.0f;
-    float forward_x = sins(m->faceAngle[1]);
-    float forward_z = coss(m->faceAngle[1]);
+    float forward_x;
+    float forward_y;
+    float forward_z;
+    crossmod_view_forward(
+            &forward_x,
+            &forward_y,
+            &forward_z
+    );
 
     int list_index;
     for (list_index = 0;
@@ -1063,11 +1085,12 @@ static struct Object *crossmod_find_melee_target(
 
             float dx = obj->oPosX - m->pos[0];
             float dy = (obj->oPosY + obj->hurtboxHeight * 0.5f)
-                    - (m->pos[1] + 80.0f);
+                    - (m->pos[1] + 100.0f);
             float dz = obj->oPosZ - m->pos[2];
 
-            float horizontal_sq = dx * dx + dz * dz;
-            float distance_sq = horizontal_sq + dy * dy;
+            float distance_sq =
+                    dx * dx + dy * dy + dz * dz;
+            float distance = sqrtf(distance_sq);
 
             float target_radius = obj->hurtboxRadius;
             if (target_radius < 40.0f) {
@@ -1075,22 +1098,21 @@ static struct Object *crossmod_find_melee_target(
             }
 
             float allowed = reach + target_radius;
-            if (distance_sq > allowed * allowed) {
+            if (distance > allowed || distance < 1.0f) {
                 continue;
             }
 
-            float horizontal = sqrtf(horizontal_sq);
-            float facing = 1.0f;
-
-            if (horizontal > 1.0f) {
-                facing = (dx * forward_x + dz * forward_z) / horizontal;
-            }
+            float facing =
+                    (dx * forward_x
+                    + dy * forward_y
+                    + dz * forward_z)
+                    / distance;
 
             if (facing < CROSSMOD_ATTACK_HALF_ANGLE_COS) {
                 continue;
             }
 
-            float score = sqrtf(distance_sq) - facing * 120.0f;
+            float score = distance - facing * 120.0f;
             if (score < best_score) {
                 best_score = score;
                 best = obj;
@@ -1130,8 +1152,14 @@ static struct Object *crossmod_find_ranged_target(
         OBJ_LIST_SURFACE
     };
 
-    float forward_x = sins(m->faceAngle[1]);
-    float forward_z = coss(m->faceAngle[1]);
+    float forward_x;
+    float forward_y;
+    float forward_z;
+    crossmod_view_forward(
+            &forward_x,
+            &forward_y,
+            &forward_z
+    );
 
     struct Object *best = NULL;
     float best_t = reach + 1.0f;
@@ -1152,30 +1180,36 @@ static struct Object *crossmod_find_ranged_target(
             }
 
             float dx = obj->oPosX - m->pos[0];
+            float dy =
+                    (obj->oPosY
+                    + obj->hurtboxHeight * 0.5f)
+                    - (m->pos[1] + 120.0f);
             float dz = obj->oPosZ - m->pos[2];
-            float t = dx * forward_x + dz * forward_z;
+
+            float t =
+                    dx * forward_x
+                    + dy * forward_y
+                    + dz * forward_z;
 
             if (t <= 0.0f || t > reach || t >= best_t) {
                 continue;
             }
 
-            float horizontal_sq = dx * dx + dz * dz;
-            float perpendicular_sq = horizontal_sq - t * t;
+            float distance_sq =
+                    dx * dx + dy * dy + dz * dz;
+            float perpendicular_sq =
+                    distance_sq - t * t;
             if (perpendicular_sq < 0.0f) {
                 perpendicular_sq = 0.0f;
             }
 
-            float radius = obj->hurtboxRadius + 80.0f;
-            if (radius < 100.0f) {
-                radius = 100.0f;
+            float radius =
+                    obj->hurtboxRadius + 70.0f;
+            if (radius < 90.0f) {
+                radius = 90.0f;
             }
 
-            float center_y = obj->oPosY + obj->hurtboxHeight * 0.5f;
-            float dy = center_y - (m->pos[1] + 100.0f);
-            float vertical_limit = obj->hurtboxHeight * 0.5f + 160.0f;
-
-            if (perpendicular_sq <= radius * radius
-                    && fabsf(dy) <= vertical_limit) {
+            if (perpendicular_sq <= radius * radius) {
                 best = obj;
                 best_t = t;
             }

@@ -1,6 +1,7 @@
 package dev.eiersohn.sm64cross.client.bridge;
 
 import com.google.gson.JsonObject;
+import dev.eiersohn.sm64cross.client.render.Sm64VisualSync;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;

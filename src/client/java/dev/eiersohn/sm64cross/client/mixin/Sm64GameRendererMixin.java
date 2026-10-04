@@ -2,8 +2,11 @@ package dev.eiersohn.sm64cross.client.mixin;
 
 import dev.eiersohn.sm64cross.client.bridge.HostState;
 import dev.eiersohn.sm64cross.client.render.Sm64FrameExporter;
+import dev.eiersohn.sm64cross.client.render.Sm64PerspectiveSync;
+import dev.eiersohn.sm64cross.client.render.Sm64VisualSync;
 import net.minecraft.client.Camera;
 import net.minecraft.client.DeltaTracker;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GameRenderer;
 import org.joml.Matrix4f;
 import org.spongepowered.asm.mixin.Mixin;
@@ -14,6 +17,23 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(GameRenderer.class)
 abstract class Sm64GameRendererMixin {
+    @Inject(method = "renderLevel", at = @At("HEAD"))
+    private void sm64cross$syncVisualPoseForRender(CallbackInfo ci) {
+        /*
+         * HostState is updated asynchronously by the WebSocket. Applying the
+         * newest pose only from END_CLIENT_TICK limits Steve to Minecraft's
+         * 20 Hz tick cadence while the SM64 host/camera can advance more often.
+         *
+         * Refresh the visual player and perspective at render time as well.
+         * ServerPlayerSync remains tick-based; this path is presentation only.
+         * It keeps third-person Steve, held items and the host camera glued
+         * together instead of visibly trailing by a tick.
+         */
+        Minecraft client = Minecraft.getInstance();
+        Sm64PerspectiveSync.apply(client);
+        Sm64VisualSync.apply(client);
+    }
+
     @Inject(
             method = "renderLevel",
             at = @At(

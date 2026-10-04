@@ -50,6 +50,11 @@ echo   I J K L     = C-Tasten
 echo   O / U       = R / L
 echo   1-9         = Minecraft-Hotbar-Slot
 echo   E           = Minecraft-Inventar im SM64-Fenster
+echo   F5          = Minecraft Perspektive wechseln
+echo   Q / Ctrl+Q  = Item / Stack droppen
+echo   F           = Offhand tauschen
+echo   T           = Minecraft-Chat
+echo   V           = originale SM64-B-Aktion
 echo.
 echo Minecraft wird fuer den Frame-Export mit 1280x720 gestartet.
 echo.

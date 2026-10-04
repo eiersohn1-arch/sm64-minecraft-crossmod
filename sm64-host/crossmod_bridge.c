@@ -755,6 +755,7 @@ static void crossmod_capture_host_input(void) {
     if (crossmod_key_down('L')) keys |= 2048u;
     if (crossmod_key_down('O')) keys |= 4096u;
     if (crossmod_key_down('U')) keys |= 8192u;
+    if (crossmod_key_down('V')) keys |= 16384u;
 
     s_host_keys = keys;
 
@@ -952,7 +953,18 @@ void crossmod_bridge_apply_controller(struct Controller *controller) {
     u16 buttons = 0;
 
     if (s_host_keys & 16u) buttons |= A_BUTTON;
-    if (s_attack_down || s_use_down) buttons |= B_BUTTON;
+    /*
+     * Mouse buttons are Minecraft actions first. Right-click placement/use
+     * must never make the hidden Mario punch at the same time.
+     *
+     * Empty-hand left-click keeps native B behavior for classic SM64 grabs,
+     * and V is an explicit native-B fallback for special original mechanics.
+     */
+    if ((s_host_keys & 16384u)
+            || (s_attack_down
+                && strcmp(s_guest.weapon_kind, "hand") == 0)) {
+        buttons |= B_BUTTON;
+    }
     if (s_host_keys & 32u) buttons |= Z_TRIG;
     if (s_host_keys & 128u) buttons |= START_BUTTON;
     if (s_host_keys & 256u) buttons |= U_CBUTTONS;
@@ -1405,6 +1417,76 @@ static void crossmod_process_combat(struct MarioState *m) {
     }
 }
 
+static void crossmod_clip_third_person_camera(
+        const Vec3f focus,
+        Vec3f pos
+) {
+    Vec3f last_safe;
+    vec3f_copy(last_safe, focus);
+
+    float dx = pos[0] - focus[0];
+    float dy = pos[1] - focus[1];
+    float dz = pos[2] - focus[2];
+
+    const int steps = 18;
+
+    for (int i = 1; i <= steps; ++i) {
+        float t = (float) i / (float) steps;
+        Vec3f probe;
+
+        probe[0] = focus[0] + dx * t;
+        probe[1] = focus[1] + dy * t;
+        probe[2] = focus[2] + dz * t;
+
+        int blocked = 0;
+
+        struct WallCollisionData wall;
+        memset(&wall, 0, sizeof(wall));
+        wall.x = probe[0];
+        wall.y = probe[1];
+        wall.z = probe[2];
+        wall.offsetY = 0.0f;
+        wall.radius = 28.0f;
+
+        if (find_wall_collisions(&wall) > 0) {
+            blocked = 1;
+        }
+
+        struct Surface *floor = NULL;
+        float floor_y = find_floor(
+                probe[0],
+                probe[1] + 80.0f,
+                probe[2],
+                &floor
+        );
+
+        if (floor != NULL
+                && probe[1] < floor_y + 24.0f) {
+            blocked = 1;
+        }
+
+        struct Surface *ceil = NULL;
+        float ceil_y = find_ceil(
+                probe[0],
+                probe[1] - 80.0f,
+                probe[2],
+                &ceil
+        );
+
+        if (ceil != NULL
+                && probe[1] > ceil_y - 24.0f) {
+            blocked = 1;
+        }
+
+        if (blocked) {
+            vec3f_copy(pos, last_safe);
+            return;
+        }
+
+        vec3f_copy(last_safe, probe);
+    }
+}
+
 static void send_state(const struct MarioState *m);
 
 void crossmod_bridge_override_camera(struct Camera *camera) {
@@ -1488,6 +1570,13 @@ void crossmod_bridge_override_camera(struct Camera *camera) {
             pos[2] = focus[2] - forward_z * 650.0f;
 
             sFOVState.fov = 60.0f;
+        }
+
+        if (s_view_mode != 0) {
+            crossmod_clip_third_person_camera(
+                    focus,
+                    pos
+            );
         }
 
         vec3f_copy(camera->pos, pos);

@@ -4,10 +4,10 @@ import dev.eiersohn.sm64cross.Sm64CrossMod;
 import dev.eiersohn.sm64cross.terrain.Sm64CollisionBlock;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
@@ -31,7 +31,7 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  * Real player-created Minecraft blocks always win over proxy collision.
  */
 public final class Sm64TerrainProxy {
-    private static final Set<BlockPos> active = new HashSet<>();
+    private static final Set<BlockPos> active = ConcurrentHashMap.newKeySet();
     private static Map<BlockPos, List<Box>> pending;
 
     private Sm64TerrainProxy() {

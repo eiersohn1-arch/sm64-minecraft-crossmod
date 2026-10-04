@@ -53,6 +53,9 @@ jobs:
           grep -q "terrain_box" src/client/java/dev/eiersohn/sm64cross/client/bridge/GuestCommandHandler.java
           grep -q "dynamicShape" src/main/java/dev/eiersohn/sm64cross/Sm64CrossMod.java
           grep -q "Shapes.or" src/client/java/dev/eiersohn/sm64cross/client/bridge/Sm64TerrainProxy.java
+          grep -q "collisionReady" src/client/java/dev/eiersohn/sm64cross/client/bridge/Sm64TerrainProxy.java
+          grep -q "invalidateForContextChange" src/client/java/dev/eiersohn/sm64cross/client/render/Sm64VisualSync.java
+          grep -q "setNoGravity(true)" src/client/java/dev/eiersohn/sm64cross/client/bridge/ServerPlayerSync.java
 
       - name: Patch a fresh upstream SM64 checkout
         run: |

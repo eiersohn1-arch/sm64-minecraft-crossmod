@@ -38,6 +38,9 @@ jobs:
           grep -q "Sm64PerspectiveSync" src/client/java/dev/eiersohn/sm64cross/client/Sm64CrossClient.java
           grep -q "THIRD_PERSON_FRONT" src/client/java/dev/eiersohn/sm64cross/client/render/Sm64PerspectiveSync.java
           grep -q "captureThirdPersonWorld" src/client/java/dev/eiersohn/sm64cross/client/mixin/Sm64GameRendererMixin.java
+          grep -q "SmoothSurvivalHud" src/client/java/dev/eiersohn/sm64cross/client/Sm64CrossClient.java
+          grep -q "renderPlayerHealth" src/client/java/dev/eiersohn/sm64cross/client/mixin/Sm64GuiMixin.java
+          grep -q "hostWidth" src/client/java/dev/eiersohn/sm64cross/client/bridge/HostState.java
           grep -q "GetAsyncKeyState" sm64-host/crossmod_bridge.c
           grep -q "crossmod_send_slot" sm64-host/crossmod_bridge.c
           grep -q "crossmod_send_pointer" sm64-host/crossmod_bridge.c

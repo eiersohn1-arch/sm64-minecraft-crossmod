@@ -20,34 +20,49 @@ public final class Sm64Hud {
                 return;
             }
 
-            int x = 8;
-            int y = 8;
-            int white = 0xFFFFFFFF;
-            int gold = 0xFFFFD54A;
+            int x = 10;
+            int y = 10;
+            int width = state.course() > 0 ? 150 : 118;
+            int height = (state.hudFlags() & 0x0040) != 0 ? 55 : 43;
+
+            /*
+             * Flat panel at native host resolution. No enlarged N64-style
+             * bitmap letters and no text shadow, so progression info stays
+             * compact while Minecraft remains the dominant HUD.
+             */
+            graphics.fill(
+                    x - 4,
+                    y - 4,
+                    x + width,
+                    y + height,
+                    0x8A101418
+            );
+
+            int primary = 0xFFF3F6F8;
+            int accent = 0xFFFFD166;
 
             graphics.drawString(
                     minecraft.font,
-                    "STAR " + state.stars() + "/120",
-                    x, y, gold, true
+                    "Stars  " + state.stars() + " / 120",
+                    x, y, accent, false
             );
             graphics.drawString(
                     minecraft.font,
-                    "COINS " + state.coins(),
-                    x, y + 11, white, true
+                    "Coins  " + state.coins()
+                            + "    Lives  " + state.lives(),
+                    x, y + 11, primary, false
             );
-            graphics.drawString(
-                    minecraft.font,
-                    "LIVES " + state.lives(),
-                    x, y + 22, white, true
-            );
+
+            int nextY = y + 22;
 
             if (state.course() > 0) {
                 graphics.drawString(
                         minecraft.font,
-                        "COURSE " + state.course()
-                                + "  ACT " + state.act(),
-                        x, y + 33, white, true
+                        "Course " + state.course()
+                                + "    Act " + state.act(),
+                        x, nextY, primary, false
                 );
+                nextY += 11;
             }
 
             if ((state.hudFlags() & 0x0040) != 0) {
@@ -60,12 +75,12 @@ public final class Sm64Hud {
                 graphics.drawString(
                         minecraft.font,
                         String.format(
-                                "TIME %d'%02d\"%d",
+                                "Time  %d:%02d.%d",
                                 minutes,
                                 seconds,
                                 tenths
                         ),
-                        x, y + 44, gold, true
+                        x, nextY, accent, false
                 );
             }
         });

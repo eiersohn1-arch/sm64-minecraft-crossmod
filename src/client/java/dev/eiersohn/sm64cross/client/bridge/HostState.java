@@ -32,6 +32,7 @@ public final class HostState {
         JsonArray camera = message.getAsJsonArray("p");
         JsonArray rotation = message.getAsJsonArray("r");
         JsonArray player = message.getAsJsonArray("pl");
+        JsonArray window = message.getAsJsonArray("win");
 
         latest = new State(
                 true,
@@ -44,6 +45,8 @@ public final class HostState {
                 (float) number(rotation, 2),
                 (float) doubleValue(message, "fov", 45.0),
                 intValue(message, "view", 1),
+                (int) numberOr(window, 0, 1280.0),
+                (int) numberOr(window, 1, 720.0),
                 number(player, 0),
                 number(player, 1),
                 number(player, 2),
@@ -74,6 +77,16 @@ public final class HostState {
                 : 0.0;
     }
 
+    private static double numberOr(
+            JsonArray array,
+            int index,
+            double fallback
+    ) {
+        return array != null && array.size() > index
+                ? array.get(index).getAsDouble()
+                : fallback;
+    }
+
     private static int intValue(JsonObject object, String key, int fallback) {
         return object.has(key) ? object.get(key).getAsInt() : fallback;
     }
@@ -97,6 +110,8 @@ public final class HostState {
             float roll,
             float fov,
             int viewMode,
+            int hostWidth,
+            int hostHeight,
             double playerX,
             double playerY,
             double playerZ,
@@ -126,6 +141,7 @@ public final class HostState {
                     0.0, 0.0, 0.0,
                     0.0f, 0.0f, 0.0f, 45.0f,
                     0,
+                    1280, 720,
                     0.0, 0.0, 0.0,
                     0.0f,
                     0, false, false,

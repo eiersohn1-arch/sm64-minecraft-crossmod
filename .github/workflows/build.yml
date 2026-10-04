@@ -19,7 +19,10 @@ jobs:
           java-version: "21"
 
       - name: Validate passthrough Python tooling
-        run: python -m py_compile tools/prepare_passthrough.py tools/verify_whole_game.py
+        run: python -m py_compile tools/prepare_passthrough.py tools/verify_whole_game.py tools/verify_universal_modder_contract.py
+
+      - name: Verify Universal Modder passthrough contract
+        run: python tools/verify_universal_modder_contract.py
 
       - name: Validate passthrough bridge sources
         run: |

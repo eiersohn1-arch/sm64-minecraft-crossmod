@@ -1,0 +1,22 @@
+name: Universal Modder clean rebuild
+
+on:
+  push:
+    branches: [universal-modder-clean-rebuild]
+  pull_request:
+
+jobs:
+  architecture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate clean bootstrap
+        run: python -m py_compile tools/bootstrap_um.py
+      - name: Reject legacy crossmod implementation
+        shell: bash
+        run: |
+          test ! -e sm64-host/crossmod_bridge.c
+          test ! -e src/client/java/dev/eiersohn/sm64cross/client/render/SmoothSurvivalHud.java
+          test ! -e src/client/java/dev/eiersohn/sm64cross/client/bridge/Sm64TerrainProxy.java
+      - name: Bootstrap Universal Modder source of truth
+        run: python tools/bootstrap_um.py

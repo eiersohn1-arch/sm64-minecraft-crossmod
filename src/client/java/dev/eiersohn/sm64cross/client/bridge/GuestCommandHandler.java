@@ -54,6 +54,7 @@ public final class GuestCommandHandler {
             case "inventory" -> toggleInventory();
             case "hud" -> toggleHud();
             case "move" -> movementInput(message);
+            case "look" -> mouseLook(message);
             case "pointer" -> pointer(message);
             case "action" -> gameplayAction(message);
             case "drop" -> dropItem(message);
@@ -82,27 +83,46 @@ public final class GuestCommandHandler {
         final boolean jump = message.get("jump").getAsInt() != 0;
         final boolean sneak = message.get("sneak").getAsInt() != 0;
         final boolean sprint = message.get("sprint").getAsInt() != 0;
-        final float yaw = message.get("yaw").getAsFloat();
-        final float pitch = message.get("pitch").getAsFloat();
+
+        Minecraft client = Minecraft.getInstance();
+        client.execute(() -> setMovementKeys(
+                client,
+                forward,
+                back,
+                left,
+                right,
+                jump,
+                sneak,
+                sprint
+        ));
+    }
+
+    /**
+     * Apply the visible host's raw mouse delta through Minecraft's own
+     * sensitivity curve. Minecraft remains authoritative for yaw/pitch; the
+     * SM64 camera only mirrors the resulting player rotation.
+     */
+    private static void mouseLook(JsonObject message) {
+        final double dx = message.get("dx").getAsDouble();
+        final double dy = message.get("dy").getAsDouble();
 
         Minecraft client = Minecraft.getInstance();
         client.execute(() -> {
-            setMovementKeys(
-                    client,
-                    forward,
-                    back,
-                    left,
-                    right,
-                    jump,
-                    sneak,
-                    sprint
-            );
-
-            if (client.player != null && client.screen == null) {
-                client.player.setYRot(yaw);
-                client.player.setYHeadRot(yaw);
-                client.player.setXRot(pitch);
+            if (client.player == null || client.screen != null) {
+                return;
             }
+
+            double sensitivity = client.options.sensitivity().get();
+            double scale = sensitivity * 0.6 + 0.2;
+            double vanillaMouseScale = scale * scale * scale * 8.0;
+            double invertY =
+                    client.options.invertYMouse().get() ? -1.0 : 1.0;
+
+            client.player.turn(
+                    dx * vanillaMouseScale,
+                    dy * vanillaMouseScale * invertY
+            );
+            client.player.setYHeadRot(client.player.getYRot());
         });
     }
 

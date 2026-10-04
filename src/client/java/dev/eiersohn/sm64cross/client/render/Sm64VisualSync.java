@@ -60,13 +60,10 @@ public final class Sm64VisualSync {
         wasConnected = true;
 
         /*
-         * The visible host owns mouse-look, but Minecraft owns locomotion.
-         * Feed only view rotation back into vanilla so movement direction,
-         * block raycasts, bows and item use all follow the same crosshair.
+         * Minecraft owns both locomotion and look rotation. Do not feed the
+         * host camera back into the player every tick: the host now follows
+         * the real Minecraft yaw/pitch published by InputPublisher.
          */
-        player.setYRot(state.yaw());
-        player.setYHeadRot(state.yaw());
-        player.setXRot(state.pitch());
         player.setNoGravity(false);
     }
 

@@ -669,23 +669,20 @@ static void crossmod_send_movement_input(void) {
     int sneak = enabled && (s_host_keys & 32u);
     int sprint = enabled && (s_host_keys & 64u);
 
-    char message[320];
+    char message[256];
     snprintf(
             message,
             sizeof(message),
             "{\"t\":\"move\","
             "\"f\":%d,\"b\":%d,\"l\":%d,\"r\":%d,"
-            "\"jump\":%d,\"sneak\":%d,\"sprint\":%d,"
-            "\"yaw\":%.4f,\"pitch\":%.4f}",
+            "\"jump\":%d,\"sneak\":%d,\"sprint\":%d}",
             forward ? 1 : 0,
             back ? 1 : 0,
             left ? 1 : 0,
             right ? 1 : 0,
             jump ? 1 : 0,
             sneak ? 1 : 0,
-            sprint ? 1 : 0,
-            s_view_yaw,
-            s_view_pitch
+            sprint ? 1 : 0
     );
 
     crossmod_ws_send(message);
@@ -933,23 +930,15 @@ static void crossmod_update_mouse_look(void) {
     int dy = cursor.y - screen_center.y;
 
     if (dx != 0 || dy != 0) {
-        const float sensitivity = 0.12f;
-        s_view_yaw += (float) dx * sensitivity;
-        s_view_pitch += (float) dy * sensitivity;
-
-        if (s_view_pitch < -89.0f) {
-            s_view_pitch = -89.0f;
-        }
-        if (s_view_pitch > 89.0f) {
-            s_view_pitch = 89.0f;
-        }
-
-        while (s_view_yaw > 180.0f) {
-            s_view_yaw -= 360.0f;
-        }
-        while (s_view_yaw < -180.0f) {
-            s_view_yaw += 360.0f;
-        }
+        char message[128];
+        snprintf(
+                message,
+                sizeof(message),
+                "{\"t\":\"look\",\"dx\":%d,\"dy\":%d}",
+                dx,
+                dy
+        );
+        crossmod_ws_send(message);
     }
 
     SetCursorPos(screen_center.x, screen_center.y);
@@ -1150,6 +1139,14 @@ void crossmod_bridge_poll(void) {
         }
 
         s_guest = next;
+
+        /*
+         * Minecraft owns view rotation. The visible SM64 camera follows the
+         * real vanilla player yaw/pitch reported by the guest.
+         */
+        s_view_yaw = next.yaw;
+        s_view_pitch = next.pitch;
+        s_view_initialized = 1;
         s_has_guest = 1;
     }
 

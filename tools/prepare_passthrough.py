@@ -215,6 +215,54 @@ def install_bridge() -> None:
         )
         print("Migrated old crossmod_bridge_apply_mario patch.")
 
+    # Migrate checkouts patched by the short-lived full execute_mario_action
+    # bypass. That version skipped entire native action groups and could leave
+    # stars/doors/cutscenes or the player state stuck. Restore the ordinary
+    # action loop, then install the safer position-only proxy hooks below.
+    mario_text = mario.read_text(encoding="utf-8")
+    locomotion_bypass_marker = (
+        "    /*\n"
+        "     * Crossmod locomotion mode: vanilla Minecraft owns all player\n"
+    )
+    if locomotion_bypass_marker in mario_text:
+        bypass_start = mario_text.index(locomotion_bypass_marker)
+        vanilla_resume = mario_text.find(
+            "    if (gMarioState->action) {",
+            bypass_start,
+        )
+        if vanilla_resume < 0:
+            raise RuntimeError(
+                "Could not migrate the old locomotion bypass in mario.c"
+            )
+
+        mario.write_text(
+            mario_text[:bypass_start] + mario_text[vanilla_resume:],
+            encoding="utf-8",
+        )
+        print("Migrated old full locomotion bypass.")
+
+    # Older passthrough runs inserted only the post-Mario callback. Normalize
+    # that ending so it can be upgraded to the new snap-back hook idempotently.
+    mario_text = mario.read_text(encoding="utf-8")
+    old_after_hook = (
+        "        play_infinite_stairs_music();\n"
+        "        crossmod_bridge_after_mario_update(gMarioState);\n"
+        "        gMarioState->marioObj->oInteractStatus = 0;"
+    )
+    vanilla_after_hook = (
+        "        play_infinite_stairs_music();\n"
+        "        gMarioState->marioObj->oInteractStatus = 0;"
+    )
+    if old_after_hook in mario_text:
+        mario.write_text(
+            mario_text.replace(
+                old_after_hook,
+                vanilla_after_hook,
+                1,
+            ),
+            encoding="utf-8",
+        )
+
     patch_once(
         pc_main,
         '#include "configfile.h"\n',
@@ -250,48 +298,13 @@ def install_bridge() -> None:
         "    if (gMarioState->action) {",
         "s32 execute_mario_action(UNUSED struct Object *o) {\n"
         "    s32 inLoop = TRUE;\n\n"
-        "    /*\n"
-        "     * Crossmod locomotion mode: vanilla Minecraft owns all player\n"
-        "     * movement/physics. Mario is only an invisible proxy used by the\n"
-        "     * original SM64 interaction, mission, warp and cutscene systems.\n"
-        "     */\n"
+        "    /* Minecraft-authoritative proxy sync (safe, non-invasive). */\n"
         "    if (crossmod_bridge_active() && gMarioState->action) {\n"
-        "        gMarioState->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;\n"
-        "        mario_reset_bodystate(gMarioState);\n"
-        "        bool proxyReady = crossmod_bridge_sync_minecraft_proxy(gMarioState);\n\n"
-        "        if (proxyReady) {\n"
-        "            mario_handle_special_floors(gMarioState);\n"
-        "            mario_process_interactions(gMarioState);\n\n"
-        "            /*\n"
-        "             * Preserve authored non-locomotion actions such as star\n"
-        "             * grabs, doors, pipes/cannons and automatic/cutscene\n"
-        "             * state machines. Ground/air/water movement groups never\n"
-        "             * execute while Minecraft authority is active.\n"
-        "             */\n"
-        "            switch (gMarioState->action & ACT_GROUP_MASK) {\n"
-        "                case ACT_GROUP_CUTSCENE:\n"
-        "                    mario_execute_cutscene_action(gMarioState);\n"
-        "                    break;\n"
-        "                case ACT_GROUP_AUTOMATIC:\n"
-        "                    mario_execute_automatic_action(gMarioState);\n"
-        "                    break;\n"
-        "                case ACT_GROUP_OBJECT:\n"
-        "                    mario_execute_object_action(gMarioState);\n"
-        "                    break;\n"
-        "            }\n\n"
-        "            /* Never allow a native action to become locomotion. */\n"
-        "            crossmod_bridge_sync_minecraft_proxy(gMarioState);\n"
-        "        }\n\n"
-        "        update_mario_health(gMarioState);\n"
-        "        update_mario_info_for_cam(gMarioState);\n"
-        "        mario_update_hitbox_and_cap_model(gMarioState);\n"
-        "        crossmod_bridge_after_mario_update(gMarioState);\n"
-        "        gMarioState->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;\n"
-        "        gMarioState->marioObj->oInteractStatus = 0;\n"
-        "        return gMarioState->particleFlags;\n"
+        "        crossmod_bridge_sync_minecraft_proxy(gMarioState);\n"
         "    }\n\n"
         "    if (gMarioState->action) {",
     )
+
 
     patch_once(
         camera,
@@ -357,6 +370,10 @@ def install_bridge() -> None:
         "        play_infinite_stairs_music();\n"
         "        gMarioState->marioObj->oInteractStatus = 0;",
         "        play_infinite_stairs_music();\n"
+        "        /* Native actions may move the invisible proxy temporarily. */\n"
+        "        if (crossmod_bridge_active()) {\n"
+        "            crossmod_bridge_sync_minecraft_proxy(gMarioState);\n"
+        "        }\n"
         "        crossmod_bridge_after_mario_update(gMarioState);\n"
         "        gMarioState->marioObj->oInteractStatus = 0;",
     )

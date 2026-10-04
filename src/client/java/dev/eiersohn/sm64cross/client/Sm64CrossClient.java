@@ -7,7 +7,6 @@ import dev.eiersohn.sm64cross.client.bridge.ServerPlayerSync;
 import dev.eiersohn.sm64cross.client.render.BackgroundGuestWindow;
 import dev.eiersohn.sm64cross.client.render.Sm64Hud;
 import dev.eiersohn.sm64cross.client.render.Sm64PerspectiveSync;
-import dev.eiersohn.sm64cross.client.render.SmoothSurvivalHud;
 import dev.eiersohn.sm64cross.client.render.Sm64VisualSync;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -17,7 +16,6 @@ public final class Sm64CrossClient implements ClientModInitializer {
     public void onInitializeClient() {
         Sm64Keys.register();
         Sm64Hud.register();
-        SmoothSurvivalHud.register();
         HostLink.launch();
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {

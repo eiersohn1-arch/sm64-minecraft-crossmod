@@ -4,8 +4,7 @@
   "compatibilityLevel": "JAVA_21",
   "client": [
     "Sm64CameraMixin",
-    "Sm64GameRendererMixin",
-    "Sm64GuiMixin"
+    "Sm64GameRendererMixin"
   ],
   "injectors": {
     "defaultRequire": 1

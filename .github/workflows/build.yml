@@ -33,8 +33,11 @@ jobs:
           grep -q "GRAPH_RENDER_INVISIBLE" sm64-host/crossmod_bridge.c
           grep -q "crossmod_process_combat" sm64-host/crossmod_bridge.c
           grep -q "gLakituState.curPos" sm64-host/crossmod_bridge.c
-          grep -q "keyUp" src/client/java/dev/eiersohn/sm64cross/client/bridge/InputPublisher.java
-          grep -q "keyJump" src/client/java/dev/eiersohn/sm64cross/client/bridge/InputPublisher.java
+          grep -q '"t":"guest"' src/client/java/dev/eiersohn/sm64cross/client/bridge/InputPublisher.java
+          grep -q "BackgroundGuestWindow" src/client/java/dev/eiersohn/sm64cross/client/Sm64CrossClient.java
+          grep -q "GetAsyncKeyState" sm64-host/crossmod_bridge.c
+          grep -q '"t":"slot"' sm64-host/crossmod_bridge.c
+          grep -q '"t":"pointer"' sm64-host/crossmod_bridge.c
 
       - name: Patch a fresh upstream SM64 checkout
         run: |
@@ -140,6 +143,10 @@ jobs:
           cd vendor/sm64-port
           g++ -std=gnu++17 -fsyntax-only             -DENABLE_DX11=1 -DTARGET_WINDOWS=1             -DNO_SEGMENTED_MEMORY=1 -DUSE_SYSTEM_MALLOC=1             -DWIDESCREEN=1 -D_LANGUAGE_C=1 -DVERSION_US=1             -I. -Iinclude -Isrc -Isrc/pc -Isrc/pc/gfx             src/pc/gfx/gfx_direct3d11.cpp
           g++ -std=gnu++17 -fsyntax-only -Isrc/pc src/pc/ws.cpp src/pc/crossmod_ws_api.cpp
+          gcc -std=gnu11 -fsyntax-only \
+            -DTARGET_PC=1 -DVERSION_US=1 -DAVOID_UB=1 -DNON_MATCHING=1 \
+            -I. -Iinclude -Isrc -Isrc/pc \
+            src/pc/crossmod_bridge.c
 
       - name: Compile-check embedded passthrough shader
         shell: msys2 {0}

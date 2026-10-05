@@ -38,6 +38,7 @@ extern "C" {
 #endif
 void um_passthrough_start(void);
 void um_passthrough_stop(void);
+int um_passthrough_connected(void);
 void um_passthrough_before_frame(void);
 void um_passthrough_frame(void);
 #ifdef __cplusplus
@@ -93,14 +94,43 @@ static bool down(int vk) {
 }
 
 static void send_key(const char *name, int vk, bool &previous) {
-    bool now = down(vk);
-    if (now == previous) return;
-    previous = now;
-    char msg[96];
-    std::snprintf(msg, sizeof(msg),
-        "{\"t\":\"key\",\"k\":\"%s\",\"down\":%s}",
-        name, now ? "true" : "false");
-    s_ws.send(msg);
+    if (!host_has_focus()) {
+        if (previous) {
+            previous = false;
+            char up[96];
+            std::snprintf(up, sizeof(up),
+                "{\"t\":\"key\",\"k\":\"%s\",\"down\":false}", name);
+            s_ws.send(up);
+        }
+        return;
+    }
+
+    const SHORT state = GetAsyncKeyState(vk);
+    const bool now = (state & 0x8000) != 0;
+    const bool pressedSincePoll = (state & 0x0001) != 0;
+
+    if (now != previous) {
+        previous = now;
+        char msg[96];
+        std::snprintf(msg, sizeof(msg),
+            "{\"t\":\"key\",\"k\":\"%s\",\"down\":%s}",
+            name, now ? "true" : "false");
+        s_ws.send(msg);
+        return;
+    }
+
+    // SM64 updates at 30 Hz. A quick mouse click can begin and end between
+    // two frames. Windows preserves that edge in GetAsyncKeyState's low bit,
+    // so synthesize a short press instead of losing the Minecraft action.
+    if (pressedSincePoll && !now) {
+        char msg[96];
+        std::snprintf(msg, sizeof(msg),
+            "{\"t\":\"key\",\"k\":\"%s\",\"down\":true}", name);
+        s_ws.send(msg);
+        std::snprintf(msg, sizeof(msg),
+            "{\"t\":\"key\",\"k\":\"%s\",\"down\":false}", name);
+        s_ws.send(msg);
+    }
 }
 
 static void publish_input() {
@@ -189,6 +219,10 @@ void um_passthrough_start(void) {
 
 void um_passthrough_stop(void) {
     s_ws.stop();
+}
+
+int um_passthrough_connected(void) {
+    return s_ws.connected() ? 1 : 0;
 }
 
 void um_passthrough_before_frame(void) {
@@ -450,6 +484,19 @@ static void um_draw_mcpt() {
     um_invalidate_sm64_state();
 }
 ''', encoding="utf-8")
+
+# Keep native Mario hidden after his own cap/model update.  The pre-frame
+# flag alone is not enough because mario_update_hitbox_and_cap_model() can
+# rewrite render flags later in the same frame.
+mario = SM64 / "src" / "game" / "mario.c"
+patch_once(mario, '#include "rumble_init.h"\n',
+    '#include "rumble_init.h"\n#include "pc/sm64_passthrough.h"\n')
+patch_once(mario,
+    "        mario_update_hitbox_and_cap_model(gMarioState);\n",
+    "        mario_update_hitbox_and_cap_model(gMarioState);\n"
+    "        if (um_passthrough_connected()) {\n"
+    "            gMarioState->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;\n"
+    "        }\n")
 
 # Lifecycle hook in the real host.
 pc_main = PC / "pc_main.c"

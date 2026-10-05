@@ -53,7 +53,14 @@ void um_passthrough_frame(void);
 #include <unordered_set>
 
 #define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 #include <windows.h>
+#ifdef near
+#undef near
+#endif
+#ifdef far
+#undef far
+#endif
 
 extern "C" {
 #include "sm64.h"
@@ -235,7 +242,7 @@ void um_passthrough_frame(void) {
 # Minecraft's world is transparent where nothing is drawn; HUD/hand is a
 # separate premultiplied-alpha layer exactly like Universal Modder's example.
 (GFX / "um_mcpt_overlay.inc").write_text(r'''
-static constexpr wchar_t UM_MCPT_NAME[] = L"Local\MCPassthroughFrame";
+static constexpr wchar_t UM_MCPT_NAME[] = L"Local\\MCPassthroughFrame";
 static constexpr uint32_t UM_MCPT_MAGIC = 0x5450434D;
 static constexpr size_t UM_MCPT_HEADER = 4096;
 static constexpr size_t UM_MCPT_DESC = 256;

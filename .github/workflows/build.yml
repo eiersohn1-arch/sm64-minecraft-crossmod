@@ -18,7 +18,7 @@ jobs:
           java-version: "25"
 
       - name: Validate clean bootstrap tooling
-        run: python -m py_compile tools/bootstrap_um.py tools/sync_um_reference.py tools/generate_sm64_host.py tools/build_sm64.py tools/verify_clean_rebuild.py
+        run: python -m py_compile tools/bootstrap_um.py tools/sync_um_reference.py tools/generate_sm64_host.py tools/build_sm64.py tools/patch_sm64_toolchain.py tools/verify_clean_rebuild.py
 
       - name: Reject legacy crossmod implementation
         shell: bash
@@ -68,6 +68,12 @@ jobs:
         run: |
           python tools/bootstrap_um.py
           python tools/generate_sm64_host.py
+          python tools/patch_sm64_toolchain.py
+
+      - name: Build patched bundled armips
+        shell: msys2 {0}
+        run: |
+          make -C vendor/sm64-port/tools armips
 
       - name: Syntax-check clean host and D3D11 compositor
         shell: msys2 {0}

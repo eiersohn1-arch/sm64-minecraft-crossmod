@@ -731,6 +731,19 @@ patch_once(mario,
     "            gMarioState->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;\n"
     "        }\n")
 
+# When Minecraft owns locomotion, override Lakitu after native SM64 camera
+# processing.  This keeps SM64's rendered world and Minecraft's camera on the
+# same yaw/pitch instead of letting Lakitu drift independently.
+camera = SM64 / "src" / "game" / "camera.c"
+patch_once(camera, '#include "level_table.h"\n',
+    '#include "level_table.h"\n#include "pc/sm64_passthrough.h"\n')
+patch_once(camera,
+    "    update_lakitu(c);\n\n"
+    "    gLakituState.lastFrameAction = sMarioCamState->action;\n",
+    "    update_lakitu(c);\n"
+    "    um_passthrough_override_camera();\n\n"
+    "    gLakituState.lastFrameAction = sMarioCamState->action;\n")
+
 # Lifecycle hook in the real host.
 pc_main = PC / "pc_main.c"
 patch_once(pc_main, '#include "configfile.h"\n',

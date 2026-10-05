@@ -56,6 +56,7 @@ extern "C" {
 #include "game/camera.h"
 #include "game/level_update.h"
 #include "game/mario.h"
+extern struct CameraFOVStatus sFOVState;
 }
 
 static WsClient s_ws;
@@ -183,6 +184,7 @@ void um_passthrough_frame(void) {
     const float cameraYaw = std::atan2(-dx, dz) * RAD_TO_DEG;
     const float cameraPitch =
         -std::atan2(dy, std::sqrt(dx * dx + dz * dz)) * RAD_TO_DEG;
+    const float renderFov = sFOVState.fov + sFOVState.fovOffset;
 
     // Milestone 1 intentionally uses third person. It proves that the real
     // SM64 runtime drives Universal Modder's real Minecraft guest before
@@ -194,11 +196,11 @@ void um_passthrough_frame(void) {
         "{\"t\":\"cam\",\"f\":%llu,"
         "\"p\":[%.4f,%.4f,%.4f],"
         "\"r\":[%.3f,%.3f,0],"
-        "\"fov\":60,\"fp\":false,"
+        "\"fov\":%.3f,\"fp\":false,"
         "\"pl\":[%.4f,%.4f,%.4f],\"h\":%.3f}",
         ++s_frame,
         cameraX, cameraY, cameraZ,
-        cameraYaw, cameraPitch,
+        cameraYaw, cameraPitch, renderFov,
         playerX, playerY, playerZ,
         bodyYaw
     );
@@ -230,13 +232,17 @@ struct UmMcptOverlayState {
     uint32_t width = 0;
     uint32_t height = 0;
     ComPtr<ID3D11Texture2D> worldTexture;
+    ComPtr<ID3D11Texture2D> depthTexture;
     ComPtr<ID3D11Texture2D> overlayTexture;
     ComPtr<ID3D11ShaderResourceView> worldSrv;
+    ComPtr<ID3D11ShaderResourceView> depthSrv;
     ComPtr<ID3D11ShaderResourceView> overlaySrv;
 
     ComPtr<ID3D11VertexShader> vs;
     ComPtr<ID3D11PixelShader> ps;
     ComPtr<ID3D11SamplerState> sampler;
+    ComPtr<ID3D11SamplerState> depthSampler;
+    ComPtr<ID3D11Buffer> depthConstants;
     ComPtr<ID3D11BlendState> blend;
     ComPtr<ID3D11DepthStencilState> noDepth;
     ComPtr<ID3D11RasterizerState> raster;
@@ -309,7 +315,19 @@ static bool um_mcpt_create_pipeline() {
     static const char *shader = R"(
 Texture2D McWorld : register(t0);
 Texture2D McOverlay : register(t1);
+Texture2D<float> McDepth : register(t2);
+Texture2D<float> HostDepth : register(t3);
 SamplerState McSampler : register(s0);
+SamplerState DepthSampler : register(s1);
+
+cbuffer UmDepthParams : register(b2) {
+    float McNear;
+    float McFar;
+    float HostNear;
+    float HostFar;
+    float DepthBias;
+    float3 DepthPadding;
+};
 
 struct VSOut {
     float4 position : SV_POSITION;
@@ -324,12 +342,27 @@ VSOut VSMain(uint id : SV_VertexID) {
     return o;
 }
 
+float mc_linear(float d) {
+    if (d <= 0.0) return 1e9;
+    return McNear * McFar / (McNear + d * (McFar - McNear));
+}
+
+float host_linear(float d) {
+    if (d >= 1.0) return HostFar;
+    return HostNear * HostFar / (HostFar - d * (HostFar - HostNear));
+}
+
 float4 PSMain(VSOut input) : SV_TARGET {
-    // Universal Modder marks its exported Minecraft rows as bottom-up.
-    float2 uv = float2(input.uv.x, 1.0 - input.uv.y);
-    float4 world = McWorld.Sample(McSampler, uv);
-    float4 over = McOverlay.Sample(McSampler, uv);
-    // Both layers are premultiplied alpha.
+    float2 mcUv = float2(input.uv.x, 1.0 - input.uv.y);
+    float4 world = McWorld.Sample(McSampler, mcUv);
+    float4 over = McOverlay.Sample(McSampler, mcUv);
+
+    float mcZ = mc_linear(McDepth.SampleLevel(DepthSampler, mcUv, 0));
+    float hostZ = host_linear(HostDepth.SampleLevel(DepthSampler, input.uv, 0));
+    float visible = mcZ < hostZ + DepthBias ? 1.0 : 0.0;
+    world *= visible;
+
+    // World obeys host depth. Hand/HUD/screens always stay on top.
     return over + world * (1.0 - over.a);
 }
 )";
@@ -370,6 +403,19 @@ float4 PSMain(VSOut input) : SV_TARGET {
     if (FAILED(d3d.device->CreateSamplerState(&sd, um_mcpt.sampler.GetAddressOf())))
         return false;
 
+    D3D11_SAMPLER_DESC depthSd = sd;
+    depthSd.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+    if (FAILED(d3d.device->CreateSamplerState(&depthSd, um_mcpt.depthSampler.GetAddressOf())))
+        return false;
+
+    D3D11_BUFFER_DESC cbd = {};
+    cbd.ByteWidth = 32;
+    cbd.Usage = D3D11_USAGE_DYNAMIC;
+    cbd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    cbd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    if (FAILED(d3d.device->CreateBuffer(&cbd, nullptr, um_mcpt.depthConstants.GetAddressOf())))
+        return false;
+
     D3D11_BLEND_DESC bd = {};
     bd.RenderTarget[0].BlendEnable = TRUE;
     bd.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;
@@ -404,13 +450,17 @@ float4 PSMain(VSOut input) : SV_TARGET {
 
 static bool um_mcpt_ensure_textures(uint32_t w, uint32_t h) {
     if (w == um_mcpt.width && h == um_mcpt.height &&
-        um_mcpt.worldTexture.Get() != nullptr && um_mcpt.overlayTexture.Get() != nullptr) {
+        um_mcpt.worldTexture.Get() != nullptr &&
+        um_mcpt.depthTexture.Get() != nullptr &&
+        um_mcpt.overlayTexture.Get() != nullptr) {
         return true;
     }
 
     um_mcpt.worldSrv.Reset();
+    um_mcpt.depthSrv.Reset();
     um_mcpt.overlaySrv.Reset();
     um_mcpt.worldTexture.Reset();
+    um_mcpt.depthTexture.Reset();
     um_mcpt.overlayTexture.Reset();
 
     D3D11_TEXTURE2D_DESC td = {};
@@ -432,6 +482,13 @@ static bool um_mcpt_ensure_textures(uint32_t w, uint32_t h) {
         return false;
     if (FAILED(d3d.device->CreateShaderResourceView(
             um_mcpt.overlayTexture.Get(), nullptr, um_mcpt.overlaySrv.GetAddressOf())))
+        return false;
+
+    td.Format = DXGI_FORMAT_R32_FLOAT;
+    if (FAILED(d3d.device->CreateTexture2D(&td, nullptr, um_mcpt.depthTexture.GetAddressOf())))
+        return false;
+    if (FAILED(d3d.device->CreateShaderResourceView(
+            um_mcpt.depthTexture.Get(), nullptr, um_mcpt.depthSrv.GetAddressOf())))
         return false;
 
     um_mcpt.width = w;
@@ -491,6 +548,10 @@ static void um_mcpt_draw() {
             base, w * 4, 0
         );
         d3d.context->UpdateSubresource(
+            um_mcpt.depthTexture.Get(), 0, nullptr,
+            base + layer, w * 4, 0
+        );
+        d3d.context->UpdateSubresource(
             um_mcpt.overlayTexture.Get(), 0, nullptr,
             base + 2 * layer, w * 4, 0
         );
@@ -501,15 +562,41 @@ static void um_mcpt_draw() {
         um_mcpt.lastPublish = published;
     }
 
-    if (um_mcpt.worldSrv.Get() == nullptr || um_mcpt.overlaySrv.Get() == nullptr) {
+    if (um_mcpt.worldSrv.Get() == nullptr
+        || um_mcpt.depthSrv.Get() == nullptr
+        || um_mcpt.overlaySrv.Get() == nullptr
+        || d3d.depth_stencil_srv.Get() == nullptr) {
         return;
     }
 
+    struct DepthParams {
+        float mcNear, mcFar, hostNear, hostFar;
+        float depthBias, pad0, pad1, pad2;
+    } params = {
+        um_mcpt_read<float>(desc + 32),
+        um_mcpt_read<float>(desc + 36),
+        1.0f, 300.0f,
+        0.05f, 0.0f, 0.0f, 0.0f
+    };
+    D3D11_MAPPED_SUBRESOURCE cbMap = {};
+    if (FAILED(d3d.context->Map(
+            um_mcpt.depthConstants.Get(), 0,
+            D3D11_MAP_WRITE_DISCARD, 0, &cbMap))) {
+        return;
+    }
+    memcpy(cbMap.pData, &params, sizeof(params));
+    d3d.context->Unmap(um_mcpt.depthConstants.Get(), 0);
+
     ID3D11ShaderResourceView *srvs[] = {
         um_mcpt.worldSrv.Get(),
-        um_mcpt.overlaySrv.Get()
+        um_mcpt.overlaySrv.Get(),
+        um_mcpt.depthSrv.Get(),
+        d3d.depth_stencil_srv.Get()
     };
-    ID3D11SamplerState *samplers[] = { um_mcpt.sampler.Get() };
+    ID3D11SamplerState *samplers[] = {
+        um_mcpt.sampler.Get(),
+        um_mcpt.depthSampler.Get()
+    };
 
     D3D11_VIEWPORT vp = {};
     vp.Width = static_cast<float>(d3d.current_width);
@@ -530,14 +617,15 @@ static void um_mcpt_draw() {
     d3d.context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     d3d.context->VSSetShader(um_mcpt.vs.Get(), nullptr, 0);
     d3d.context->PSSetShader(um_mcpt.ps.Get(), nullptr, 0);
-    d3d.context->PSSetShaderResources(0, 2, srvs);
-    d3d.context->PSSetSamplers(0, 1, samplers);
+    d3d.context->PSSetShaderResources(0, 4, srvs);
+    d3d.context->PSSetSamplers(0, 2, samplers);
+    d3d.context->PSSetConstantBuffers(2, 1, um_mcpt.depthConstants.GetAddressOf());
     d3d.context->Draw(3, 0);
 
     // Do not leave private compositor state hidden behind SM64's own state
     // cache. The next native draw must fully bind its pipeline again.
-    ID3D11ShaderResourceView *nullSrvs[] = { nullptr, nullptr };
-    d3d.context->PSSetShaderResources(0, 2, nullSrvs);
+    ID3D11ShaderResourceView *nullSrvs[] = { nullptr, nullptr, nullptr, nullptr };
+    d3d.context->PSSetShaderResources(0, 4, nullSrvs);
     um_mcpt_invalidate_sm64_cache();
 }
 ''', encoding="utf-8")
@@ -563,6 +651,30 @@ patch_once(
 )
 
 gfx_d3d11 = gfx / "gfx_direct3d11.cpp"
+patch_once(
+    gfx_d3d11,
+    "#include <cstdio>\n",
+    "#include <cstdio>\n#include <cstring>\n",
+)
+patch_once(
+    gfx_d3d11,
+    "    ComPtr<ID3D11DepthStencilView> depth_stencil_view;\n",
+    "    ComPtr<ID3D11DepthStencilView> depth_stencil_view;\n"
+    "    ComPtr<ID3D11Texture2D> depth_stencil_texture;\n"
+    "    ComPtr<ID3D11ShaderResourceView> depth_stencil_srv;\n",
+)
+patch_once(
+    gfx_d3d11,
+    "        d3d.depth_stencil_view.Reset();\n",
+    "        d3d.depth_stencil_view.Reset();\n"
+    "        d3d.depth_stencil_srv.Reset();\n"
+    "        d3d.depth_stencil_texture.Reset();\n",
+)
+patch_once(
+    gfx_d3d11,
+    "    depth_stencil_texture_desc.Format = d3d.feature_level >= D3D_FEATURE_LEVEL_10_0 ?\n                                        DXGI_FORMAT_D32_FLOAT : DXGI_FORMAT_D24_UNORM_S8_UINT;\n    depth_stencil_texture_desc.SampleDesc = d3d.sample_description;\n    depth_stencil_texture_desc.Usage = D3D11_USAGE_DEFAULT;\n    depth_stencil_texture_desc.BindFlags = D3D11_BIND_DEPTH_STENCIL;\n    depth_stencil_texture_desc.CPUAccessFlags = 0;\n    depth_stencil_texture_desc.MiscFlags = 0;\n\n    ComPtr<ID3D11Texture2D> depth_stencil_texture;\n    ThrowIfFailed(d3d.device->CreateTexture2D(&depth_stencil_texture_desc, nullptr, depth_stencil_texture.GetAddressOf()));\n    ThrowIfFailed(d3d.device->CreateDepthStencilView(depth_stencil_texture.Get(), nullptr, d3d.depth_stencil_view.GetAddressOf()));",
+    "    const bool depth32 = d3d.feature_level >= D3D_FEATURE_LEVEL_10_0;\n    depth_stencil_texture_desc.Format = depth32 ?\n        DXGI_FORMAT_R32_TYPELESS : DXGI_FORMAT_R24G8_TYPELESS;\n    depth_stencil_texture_desc.SampleDesc = d3d.sample_description;\n    depth_stencil_texture_desc.Usage = D3D11_USAGE_DEFAULT;\n    depth_stencil_texture_desc.BindFlags =\n        D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;\n    depth_stencil_texture_desc.CPUAccessFlags = 0;\n    depth_stencil_texture_desc.MiscFlags = 0;\n\n    ThrowIfFailed(d3d.device->CreateTexture2D(\n        &depth_stencil_texture_desc, nullptr,\n        d3d.depth_stencil_texture.GetAddressOf()));\n\n    D3D11_DEPTH_STENCIL_VIEW_DESC dsv_desc = {};\n    dsv_desc.Format = depth32 ?\n        DXGI_FORMAT_D32_FLOAT : DXGI_FORMAT_D24_UNORM_S8_UINT;\n    dsv_desc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;\n    ThrowIfFailed(d3d.device->CreateDepthStencilView(\n        d3d.depth_stencil_texture.Get(), &dsv_desc,\n        d3d.depth_stencil_view.GetAddressOf()));\n\n    D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc = {};\n    srv_desc.Format = depth32 ?\n        DXGI_FORMAT_R32_FLOAT : DXGI_FORMAT_R24_UNORM_X8_TYPELESS;\n    srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;\n    srv_desc.Texture2D.MipLevels = 1;\n    ThrowIfFailed(d3d.device->CreateShaderResourceView(\n        d3d.depth_stencil_texture.Get(), &srv_desc,\n        d3d.depth_stencil_srv.GetAddressOf()));",
+)
 patch_once(
     gfx_d3d11,
     "static LARGE_INTEGER last_time, accumulated_time, frequency;\n",

@@ -180,7 +180,8 @@ tick_insert = '''\t\tif (p == null || p.drive()) {
 
 \t\t\tVec3 velocity = player.getDeltaMovement();
 \t\t\tPassthrough.events.accept(String.format(Locale.ROOT,
-\t\t\t\t"{\\\"t\\\":\\\"mcpose\\\",\\\"p\\\":[%.6f,%.6f,%.6f],\\\"v\\\":[%.5f,%.5f,%.5f],\\\"r\\\":[%.3f,%.3f],\\\"g\\\":%b}",
+\t\t\t\t"{\\\"t\\\":\\\"mcpose\\\",\\\"ctx\\\":%d,\\\"p\\\":[%.6f,%.6f,%.6f],\\\"v\\\":[%.5f,%.5f,%.5f],\\\"r\\\":[%.3f,%.3f],\\\"g\\\":%b}",
+\t\t\t\tp.context(),
 \t\t\t\tplayer.getX(), player.getY(), player.getZ(),
 \t\t\t\tvelocity.x, velocity.y, velocity.z,
 \t\t\t\tplayer.getYRot(), player.getXRot(), player.onGround()));

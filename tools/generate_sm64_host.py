@@ -47,8 +47,12 @@ void um_passthrough_frame(void);
 #include "ws.h"
 #include <cmath>
 #include <cstdio>
+#include <string>
+#include <unordered_set>
 
 extern "C" {
+#include "engine/surface_collision.h"
+#include "game/area.h"
 #include "game/camera.h"
 #include "game/level_update.h"
 #include "game/mario.h"
@@ -56,6 +60,90 @@ extern "C" {
 
 static WsClient s_ws;
 static unsigned long long s_frame = 0;
+static int s_generation = -1;
+static int s_level = -1;
+static int s_area = -1;
+static std::unordered_set<unsigned long long> s_groundSampled;
+
+static unsigned long long column_key(int x, int z) {
+    return (static_cast<unsigned long long>(static_cast<unsigned int>(x)) << 32)
+        | static_cast<unsigned int>(z);
+}
+
+static void reset_ground_if_needed() {
+    const int generation = s_ws.generation();
+    if (generation == s_generation
+        && gCurrLevelNum == s_level
+        && gCurrAreaIndex == s_area) {
+        return;
+    }
+
+    s_generation = generation;
+    s_level = gCurrLevelNum;
+    s_area = gCurrAreaIndex;
+    s_groundSampled.clear();
+    s_ws.send("{\"t\":\"clear\"}");
+}
+
+static void sample_ground(float playerX, float playerZ) {
+    constexpr float SCALE = 100.0f;
+    constexpr float MC_Y_ORIGIN = 64.0f;
+    constexpr int RADIUS = 12;
+    constexpr int DEPTH = 2;
+    constexpr int BUDGET = 80;
+
+    const int centerX = static_cast<int>(std::floor(playerX));
+    const int centerZ = static_cast<int>(std::floor(playerZ));
+    int probes = 0;
+    std::string columns;
+
+    for (int dz = -RADIUS; dz <= RADIUS && probes < BUDGET; ++dz) {
+        for (int dx = -RADIUS; dx <= RADIUS && probes < BUDGET; ++dx) {
+            if (dx * dx + dz * dz > RADIUS * RADIUS) {
+                continue;
+            }
+
+            const int x = centerX + dx;
+            const int z = centerZ + dz;
+            const auto key = column_key(x, z);
+            if (s_groundSampled.count(key) != 0) {
+                continue;
+            }
+
+            ++probes;
+            const float sm64X = (x + 0.5f) * SCALE;
+            const float sm64Z = -(z + 0.5f) * SCALE;
+            struct Surface *floorSurface = nullptr;
+            const float floorY = find_floor(
+                sm64X,
+                gMarioState->pos[1] + 200.0f,
+                sm64Z,
+                &floorSurface
+            );
+
+            if (floorSurface == nullptr) {
+                continue;
+            }
+
+            s_groundSampled.insert(key);
+            const float mcFloorY = floorY / SCALE + MC_Y_ORIGIN;
+            const int top = static_cast<int>(std::floor(mcFloorY + 0.5f)) - 1;
+            char entry[80];
+            std::snprintf(
+                entry,
+                sizeof(entry),
+                "%s%d,%d,%d,%d",
+                columns.empty() ? "" : ",",
+                x, z, top - DEPTH + 1, top
+            );
+            columns += entry;
+        }
+    }
+
+    if (!columns.empty()) {
+        s_ws.send("{\"t\":\"ground\",\"c\":[" + columns + "]}");
+    }
+}
 
 void um_passthrough_start(void) {
     s_ws.start("127.0.0.1", 25599);
@@ -115,6 +203,8 @@ void um_passthrough_frame(void) {
         bodyYaw
     );
     s_ws.send(message);
+    reset_ground_if_needed();
+    sample_ground(playerX, playerZ);
 }
 ''', encoding="utf-8")
 

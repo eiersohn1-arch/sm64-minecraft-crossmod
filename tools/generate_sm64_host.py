@@ -35,9 +35,13 @@ for name in ("ws.cpp", "ws.h"):
 #ifdef __cplusplus
 extern "C" {
 #endif
+struct MarioState;
 void um_passthrough_start(void);
 void um_passthrough_stop(void);
-void um_passthrough_frame(void);
+void um_passthrough_before_frame(void);
+void um_passthrough_after_frame(void);
+int um_passthrough_minecraft_authority(void);
+void um_passthrough_apply_mario_proxy(struct MarioState *m);
 #ifdef __cplusplus
 }
 #endif
@@ -52,6 +56,7 @@ void um_passthrough_frame(void);
 #include <windows.h>
 
 extern "C" {
+#include "sm64.h"
 #include "engine/surface_collision.h"
 #include "game/area.h"
 #include "game/camera.h"
@@ -67,6 +72,15 @@ static int s_level = -1;
 static int s_area = -1;
 static std::unordered_set<unsigned long long> s_groundSampled;
 
+struct McPose {
+    bool valid = false;
+    int context = 0;
+    double x = 0.0, y = 64.0, z = 0.0;
+    double vx = 0.0, vy = 0.0, vz = 0.0;
+    float yaw = 0.0f, pitch = 0.0f;
+};
+static McPose s_mcPose;
+
 struct InputState {
     bool attack = false;
     bool use = false;
@@ -78,8 +92,36 @@ struct InputState {
 };
 static InputState s_input;
 
+static int current_context() {
+    return (gCurrLevelNum << 8) | (gCurrAreaIndex & 0xFF);
+}
+
+static bool host_has_focus() {
+    HWND foreground = GetForegroundWindow();
+    if (foreground == nullptr) {
+        return false;
+    }
+    DWORD pid = 0;
+    GetWindowThreadProcessId(foreground, &pid);
+    return pid == GetCurrentProcessId();
+}
+
 static bool is_down(int vk) {
-    return (GetAsyncKeyState(vk) & 0x8000) != 0;
+    return host_has_focus() && (GetAsyncKeyState(vk) & 0x8000) != 0;
+}
+
+static bool native_sm64_action_owns_player() {
+    if (gMarioState == nullptr) {
+        return true;
+    }
+    const u32 group = gMarioState->action & ACT_GROUP_MASK;
+    return group == ACT_GROUP_CUTSCENE
+        || group == ACT_GROUP_AUTOMATIC
+        || group == ACT_GROUP_OBJECT;
+}
+
+static bool minecraft_authority_requested() {
+    return s_ws.connected() && !native_sm64_action_owns_player();
 }
 
 static void send_key_state(const char *name, int vk, bool &previous) {
@@ -97,7 +139,7 @@ static void send_key_state(const char *name, int vk, bool &previous) {
     s_ws.send(message);
 }
 
-static void publish_minecraft_input() {
+static void publish_minecraft_input(bool movementEnabled) {
     send_key_state("attack", VK_LBUTTON, s_input.attack);
     send_key_state("use", VK_RBUTTON, s_input.use);
     send_key_state("inventory", 'E', s_input.inventory);
@@ -117,6 +159,29 @@ static void publish_minecraft_input() {
         }
         s_input.slots[i] = down;
     }
+
+    const bool forward = movementEnabled && is_down('W');
+    const bool back = movementEnabled && is_down('S');
+    const bool left = movementEnabled && is_down('A');
+    const bool right = movementEnabled && is_down('D');
+    const bool jump = movementEnabled && is_down(VK_SPACE);
+    const bool sneak = movementEnabled && is_down(VK_SHIFT);
+    const bool sprint = movementEnabled && is_down(VK_CONTROL);
+
+    char movement[192];
+    std::snprintf(
+        movement, sizeof(movement),
+        "{\"t\":\"move\",\"f\":%s,\"b\":%s,\"l\":%s,\"r\":%s,"
+        "\"jump\":%s,\"sneak\":%s,\"sprint\":%s}",
+        forward ? "true" : "false",
+        back ? "true" : "false",
+        left ? "true" : "false",
+        right ? "true" : "false",
+        jump ? "true" : "false",
+        sneak ? "true" : "false",
+        sprint ? "true" : "false"
+    );
+    s_ws.send(movement);
 }
 
 static unsigned long long column_key(int x, int z) {
@@ -137,6 +202,7 @@ static void reset_ground_if_needed() {
     s_level = gCurrLevelNum;
     s_area = gCurrAreaIndex;
     s_groundSampled.clear();
+    s_mcPose.valid = false;
     s_ws.send("{\"t\":\"clear\"}");
 }
 
@@ -171,7 +237,7 @@ static void sample_ground(float playerX, float playerZ) {
             struct Surface *floorSurface = nullptr;
             const float floorY = find_floor(
                 sm64X,
-                gMarioState->pos[1] + 200.0f,
+                gMarioState->pos[1] + 300.0f,
                 sm64Z,
                 &floorSurface
             );
@@ -200,6 +266,30 @@ static void sample_ground(float playerX, float playerZ) {
     }
 }
 
+static void poll_guest_messages() {
+    std::string message;
+    while (s_ws.poll(message)) {
+        if (message.rfind("{\"t\":\"mcpose\"", 0) != 0) {
+            continue;
+        }
+
+        McPose pose;
+        int matched = std::sscanf(
+            message.c_str(),
+            "{\"t\":\"mcpose\",\"ctx\":%d,\"p\":[%lf,%lf,%lf],"
+            "\"v\":[%lf,%lf,%lf],\"r\":[%f,%f]",
+            &pose.context,
+            &pose.x, &pose.y, &pose.z,
+            &pose.vx, &pose.vy, &pose.vz,
+            &pose.yaw, &pose.pitch
+        );
+        if (matched == 9 && pose.context == current_context()) {
+            pose.valid = true;
+            s_mcPose = pose;
+        }
+    }
+}
+
 void um_passthrough_start(void) {
     s_ws.start("127.0.0.1", 25599);
 }
@@ -208,13 +298,73 @@ void um_passthrough_stop(void) {
     s_ws.stop();
 }
 
-void um_passthrough_frame(void) {
+int um_passthrough_minecraft_authority(void) {
+    return minecraft_authority_requested()
+        && s_mcPose.valid
+        && s_mcPose.context == current_context();
+}
+
+void um_passthrough_apply_mario_proxy(struct MarioState *m) {
+    if (m == nullptr || m->marioObj == nullptr
+        || !um_passthrough_minecraft_authority()) {
+        return;
+    }
+
+    constexpr float SCALE = 100.0f;
+    constexpr float MC_Y_ORIGIN = 64.0f;
+    constexpr float ANGLE_SCALE = 65536.0f / 360.0f;
+
+    m->pos[0] = static_cast<float>(s_mcPose.x * SCALE);
+    m->pos[1] = static_cast<float>((s_mcPose.y - MC_Y_ORIGIN) * SCALE);
+    m->pos[2] = static_cast<float>(-s_mcPose.z * SCALE);
+
+    m->vel[0] = static_cast<float>(s_mcPose.vx * SCALE);
+    m->vel[1] = static_cast<float>(s_mcPose.vy * SCALE);
+    m->vel[2] = static_cast<float>(-s_mcPose.vz * SCALE);
+    m->forwardVel = static_cast<float>(
+        std::sqrt(s_mcPose.vx * s_mcPose.vx + s_mcPose.vz * s_mcPose.vz) * SCALE
+    );
+
+    const float sm64Yaw = 180.0f - s_mcPose.yaw;
+    m->faceAngle[0] = 0;
+    m->faceAngle[1] = static_cast<s16>(sm64Yaw * ANGLE_SCALE);
+    m->faceAngle[2] = 0;
+
+    m->marioObj->oPosX = m->pos[0];
+    m->marioObj->oPosY = m->pos[1];
+    m->marioObj->oPosZ = m->pos[2];
+    m->marioObj->header.gfx.pos[0] = m->pos[0];
+    m->marioObj->header.gfx.pos[1] = m->pos[1];
+    m->marioObj->header.gfx.pos[2] = m->pos[2];
+    m->marioObj->header.gfx.angle[1] = m->faceAngle[1];
+    m->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;
+
+    m->floorHeight = find_floor(
+        m->pos[0], m->pos[1] + 150.0f, m->pos[2], &m->floor
+    );
+}
+
+void um_passthrough_before_frame(void) {
+    if (!s_ws.connected()) {
+        return;
+    }
+    if (gMarioState != nullptr
+        && (gCurrLevelNum != s_level || gCurrAreaIndex != s_area)) {
+        s_mcPose.valid = false;
+    }
+    poll_guest_messages();
+    if (gMarioState != nullptr) {
+        um_passthrough_apply_mario_proxy(gMarioState);
+    }
+}
+
+void um_passthrough_after_frame(void) {
     if (!s_ws.connected() || gMarioState == nullptr) {
         return;
     }
 
-    // Keep the transform in one place. Later collision and rendering stages
-    // must use these exact same constants.
+    reset_ground_if_needed();
+
     constexpr float SCALE = 100.0f;
     constexpr float MC_Y_ORIGIN = 64.0f;
     constexpr float RAD_TO_DEG = 57.29577951308232f;
@@ -231,7 +381,6 @@ void um_passthrough_frame(void) {
         180.0f
         - (float)gMarioState->faceAngle[1] * (360.0f / 65536.0f);
 
-    // Render Minecraft from the actual SM64 camera, not Mario's body heading.
     const float dx = (gLakituState.focus[0] - gLakituState.pos[0]) / SCALE;
     const float dy = (gLakituState.focus[1] - gLakituState.pos[1]) / SCALE;
     const float dz = -(gLakituState.focus[2] - gLakituState.pos[2]) / SCALE;
@@ -239,29 +388,29 @@ void um_passthrough_frame(void) {
     const float cameraPitch =
         -std::atan2(dy, std::sqrt(dx * dx + dz * dz)) * RAD_TO_DEG;
     const float renderFov = sFOVState.fov + sFOVState.fovOffset;
+    const bool minecraftAuthority = !native_sm64_action_owns_player();
 
-    // Milestone 1 intentionally uses third person. It proves that the real
-    // SM64 runtime drives Universal Modder's real Minecraft guest before
-    // compositor or collision code is added.
-    char message[512];
+    char message[640];
     std::snprintf(
         message,
         sizeof(message),
-        "{\"t\":\"cam\",\"f\":%llu,"
+        "{\"t\":\"cam\",\"f\":%llu,\"ctx\":%d,\"mc\":%s,"
         "\"p\":[%.4f,%.4f,%.4f],"
         "\"r\":[%.3f,%.3f,0],"
         "\"fov\":%.3f,\"fp\":false,"
         "\"pl\":[%.4f,%.4f,%.4f],\"h\":%.3f}",
         ++s_frame,
+        current_context(),
+        minecraftAuthority ? "true" : "false",
         cameraX, cameraY, cameraZ,
         cameraYaw, cameraPitch, renderFov,
         playerX, playerY, playerZ,
         bodyYaw
     );
     s_ws.send(message);
-    reset_ground_if_needed();
+
     sample_ground(playerX, playerZ);
-    publish_minecraft_input();
+    publish_minecraft_input(minecraftAuthority);
 }
 ''', encoding="utf-8")
 

@@ -842,9 +842,12 @@ patch_once(
 )
 patch_once(
     pc_main,
+    "    gfx_start_frame();\n"
     "    game_loop_one_iteration();\n",
+    "    gfx_start_frame();\n"
+    "    um_passthrough_before_frame();\n"
     "    game_loop_one_iteration();\n"
-    "    um_passthrough_frame();\n",
+    "    um_passthrough_after_frame();\n",
 )
 patch_once(
     pc_main,
@@ -852,6 +855,54 @@ patch_once(
     '    gfx_init(wm_api, rendering_api, "Super Mario 64 PC-Port", configFullscreen);\n'
     '    um_passthrough_start();\n'
     '    atexit(um_passthrough_stop);\n',
+)
+
+mario = SM64 / "src" / "game" / "mario.c"
+patch_once(
+    mario,
+    '#include "rumble_init.h"\n',
+    '#include "rumble_init.h"\n#include "pc/sm64_passthrough.h"\n',
+)
+patch_once(
+    mario,
+    "        mario_reset_bodystate(gMarioState);\n"
+    "        update_mario_inputs(gMarioState);",
+    "        mario_reset_bodystate(gMarioState);\n"
+    "        if (um_passthrough_minecraft_authority()) {\n"
+    "            um_passthrough_apply_mario_proxy(gMarioState);\n"
+    "        }\n"
+    "        update_mario_inputs(gMarioState);",
+)
+patch_once(
+    mario,
+    "        while (inLoop) {\n"
+    "            switch (gMarioState->action & ACT_GROUP_MASK) {",
+    "        s32 umMinecraftProxy = um_passthrough_minecraft_authority();\n"
+    "        while (inLoop && !umMinecraftProxy) {\n"
+    "            switch (gMarioState->action & ACT_GROUP_MASK) {",
+)
+patch_once(
+    mario,
+    "        sink_mario_in_quicksand(gMarioState);\n"
+    "        squish_mario_model(gMarioState);\n"
+    "        set_submerged_cam_preset_and_spawn_bubbles(gMarioState);",
+    "        if (umMinecraftProxy) {\n"
+    "            um_passthrough_apply_mario_proxy(gMarioState);\n"
+    "        } else {\n"
+    "            sink_mario_in_quicksand(gMarioState);\n"
+    "            squish_mario_model(gMarioState);\n"
+    "            set_submerged_cam_preset_and_spawn_bubbles(gMarioState);\n"
+    "        }",
+)
+patch_once(
+    mario,
+    "        mario_update_hitbox_and_cap_model(gMarioState);\n\n"
+    "        // Both of the wind handling portions",
+    "        mario_update_hitbox_and_cap_model(gMarioState);\n"
+    "        if (umMinecraftProxy) {\n"
+    "            gMarioState->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;\n"
+    "        }\n\n"
+    "        // Both of the wind handling portions",
 )
 
 gfx_d3d11 = gfx / "gfx_direct3d11.cpp"
@@ -902,4 +953,4 @@ patch_once(
 
 print("Clean SM64 Universal Modder host installed into:", SM64)
 print("Transport: Universal Modder ws.cpp/ws.h on 127.0.0.1:25599")
-print("Lifecycle: SM64 starts/stops the link and publishes one camera pose per frame")
+print("Lifecycle: SM64 receives Minecraft pose before simulation and publishes camera/input after simulation")

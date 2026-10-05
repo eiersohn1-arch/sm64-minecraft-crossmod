@@ -49,30 +49,51 @@ rom\baserom.us.z64
 
 or the repository root as `baserom.us.z64`.
 
-## Build
+## Windows: one-click flow
 
-After pulling this branch:
+After pulling this branch, the recommended Windows path is now simply:
 
 ```bat
-setup-windows.bat
-build-sm64.bat
+windows-all.bat
 ```
 
-Then start both:
+That one launcher runs the unified `windows-crossmod.ps1` controller. It:
+
+1. checks Git, Python, **JDK 25**, MSYS2 and the ROM;
+2. installs/validates the required MSYS2 MinGW packages;
+3. refreshes Universal Modder and a clean `sm64-port`;
+4. recreates the Minecraft guest directly from Universal Modder;
+5. removes all stale/generated legacy crossmod files;
+6. patches old `sm64-port` build tools for current MinGW;
+7. rebuilds the generated SM64 host from a pristine checkout;
+8. launches Minecraft;
+9. waits for the Universal Modder WebSocket on `127.0.0.1:25599`;
+10. only then starts the SM64 host.
+
+Your own clean USA ROM must be at either:
+
+```
+rom\baserom.us.z64
+```
+
+or:
+
+```
+baserom.us.z64
+```
+
+Useful individual launchers still exist, but they all route through the same PowerShell controller:
 
 ```bat
+windows-doctor.bat
+setup-windows.bat
+build-sm64.bat
+start-guest.bat
+start-sm64.bat
 start-crossmod.bat
 ```
 
-For individual testing:
-
-```bat
-start-guest.bat
-start-sm64.bat
-start-fake-host.bat
-```
-
-If the real host build fails, send the full terminal output. The clean rebuild CI also syntax-checks the generated SM64 adapter and D3D11 compositor on Windows.
+For normal use, prefer `windows-all.bat` for a fresh build or `start-crossmod.bat` after a successful build.
 
 ## Next order
 

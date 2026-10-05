@@ -67,8 +67,19 @@ replace_once(
 
 # 3) In Universal Modder's original drive mode Minecraft is intentionally
 # airborne for GTA elytra flight.  SM64 uses the same mode for ordinary
-# walking, so retain vanilla onGround/gravity and report rotation too.
+# walking, so retain vanilla onGround/gravity, honour F5 first/third person,
+# and report rotation too.
 player_sync = CLIENT / "PlayerSync.java"
+replace_once(
+    player_sync,
+    'if (minecraft.options.getCameraType() != CameraType.THIRD_PERSON_BACK) {\n'
+    '\t\t\t\tminecraft.options.setCameraType(CameraType.THIRD_PERSON_BACK);\n'
+    '\t\t\t}',
+    'CameraType driveCamera = p.firstPerson() ? CameraType.FIRST_PERSON : CameraType.THIRD_PERSON_BACK;\n'
+    '\t\t\tif (minecraft.options.getCameraType() != driveCamera) {\n'
+    '\t\t\t\tminecraft.options.setCameraType(driveCamera);\n'
+    '\t\t\t}',
+)
 replace_once(
     player_sync,
     '			// airborne: with no collision onGround never updates, and the server cancels a grounded player\'s glide\n'

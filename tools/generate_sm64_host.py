@@ -265,6 +265,8 @@ static void reset_ground_if_needed() {
     s_level = gCurrLevelNum;
     s_area = gCurrAreaIndex;
     s_ground_sampled.clear();
+    s_mc.valid = false;
+    s_spawn_sync_pending = true;
     s_ws.send("{\"t\":\"clear\"}");
 }
 
@@ -307,8 +309,23 @@ static void publish_ground() {
         }
     }
 
-    if (!cols.empty())
+    if (!cols.empty()) {
         s_ws.send("{\"t\":\"ground\",\"c\":[" + cols + "]}");
+
+        if (s_spawn_sync_pending) {
+            const double x = gMarioState->pos[0] / SCALE;
+            const double y = gMarioState->pos[1] / SCALE + Y0 + 0.10;
+            const double z = -gMarioState->pos[2] / SCALE;
+            char command[160];
+            std::snprintf(
+                command, sizeof(command),
+                "{\"t\":\"cmd\",\"c\":\"tp @a %.4f %.4f %.4f\"}",
+                x, y, z
+            );
+            s_ws.send(command);
+            s_spawn_sync_pending = false;
+        }
+    }
 }
 
 void um_passthrough_start(void) {

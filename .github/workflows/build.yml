@@ -10,18 +10,47 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate clean bootstrap
-        run: python -m py_compile tools/bootstrap_um.py tools/sync_um_reference.py
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Validate clean bootstrap tooling
+        run: python -m py_compile tools/bootstrap_um.py tools/sync_um_reference.py tools/generate_sm64_host.py tools/build_sm64.py
+
       - name: Reject legacy crossmod implementation
         shell: bash
         run: |
           test ! -e sm64-host/crossmod_bridge.c
           test ! -e src/client/java/dev/eiersohn/sm64cross/client/render/SmoothSurvivalHud.java
           test ! -e src/client/java/dev/eiersohn/sm64cross/client/bridge/Sm64TerrainProxy.java
+
       - name: Bootstrap Universal Modder source of truth
         run: python tools/bootstrap_um.py
+
       - name: Sync Minecraft guest from Universal Modder
         run: python tools/sync_um_reference.py
+
       - name: Verify guest is the Universal Modder reference
         shell: bash
         run: diff -qr vendor/universal-modder/examples/minecraft-gta5-passthrough/mc generated/minecraft-guest
+
+      - name: Build Universal Modder Minecraft guest
+        working-directory: generated/minecraft-guest
+        run: ./gradlew build --no-daemon
+
+      - name: Generate clean SM64 host adapter
+        run: python tools/generate_sm64_host.py
+
+      - name: Verify SM64 host wiring
+        shell: bash
+        run: |
+          grep -q 'um_passthrough_start' vendor/sm64-port/src/pc/pc_main.c
+          grep -q 'um_passthrough_frame' vendor/sm64-port/src/pc/pc_main.c
+          grep -q 'um_passthrough_stop' vendor/sm64-port/src/pc/pc_main.c
+          grep -q '127.0.0.1' vendor/sm64-port/src/pc/sm64_passthrough.cpp
+          grep -q 'lws2_32' vendor/sm64-port/Makefile
+          cmp vendor/universal-modder/examples/minecraft-gta5-passthrough/gta/src/ws.cpp vendor/sm64-port/src/pc/ws.cpp
+          cmp vendor/universal-modder/examples/minecraft-gta5-passthrough/gta/src/ws.h vendor/sm64-port/src/pc/ws.h

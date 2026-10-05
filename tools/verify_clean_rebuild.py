@@ -55,6 +55,7 @@ contains(makefile,"lws2_32","Winsock linked")
 contains(makefile,"-pthread","UM websocket thread support")
 contains(SM64/"src"/"game"/"camera.c","um_passthrough_override_camera","SM64 camera override hook")
 contains(SM64/"src"/"game"/"mario.c","um_passthrough_apply_mario_proxy","Mario follows Minecraft before camera/interaction update")
+contains(SM64/"src"/"game"/"hud.c","um_passthrough_connected","Minecraft HUD replaces duplicate SM64 HUD")
 contains(SM64/"src"/"game"/"mario.c","um_passthrough_connected","Mario hidden after native model update")
 
 failed=[n for n,ok in checks if not ok]

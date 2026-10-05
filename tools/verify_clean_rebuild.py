@@ -40,6 +40,7 @@ contains(host,"find_floor","native floor oracle")
 contains(host,"#undef near","Windows near macro neutralized")
 contains(host,"#undef far","Windows far macro neutralized")
 contains(host,"GRAPH_RENDER_INVISIBLE","native Mario hidden while guest attached")
+contains(host,"pressedSincePoll","short mouse clicks preserved")
 contains(gfx,'#include "um_mcpt_overlay.inc"',"MCPT compositor injected")
 contains(gfx,"um_draw_mcpt","MCPT drawn in SM64 D3D11")
 contains(overlay,'Local\\\\MCPassthroughFrame',"UM MCPT mapping")
@@ -47,6 +48,7 @@ contains(overlay,"World.Sample","Minecraft world layer")
 contains(overlay,"Overlay.Sample","Minecraft HUD/hand layer")
 contains(makefile,"lws2_32","Winsock linked")
 contains(makefile,"-pthread","UM websocket thread support")
+contains(SM64/"src"/"game"/"mario.c","um_passthrough_connected","Mario hidden after native model update")
 
 failed=[n for n,ok in checks if not ok]
 for n,ok in checks:

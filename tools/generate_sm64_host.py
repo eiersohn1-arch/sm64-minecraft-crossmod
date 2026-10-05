@@ -84,6 +84,14 @@ void um_passthrough_frame(void) {
         180.0f
         - (float)gMarioState->faceAngle[1] * (360.0f / 65536.0f);
 
+    const float dx = (gLakituState.focus[0] - gLakituState.pos[0]) / SCALE;
+    const float dy = (gLakituState.focus[1] - gLakituState.pos[1]) / SCALE;
+    const float dz = -(gLakituState.focus[2] - gLakituState.pos[2]) / SCALE;
+    constexpr float RAD_TO_DEG = 57.29577951308232f;
+    const float cameraYaw = std::atan2(-dx, dz) * RAD_TO_DEG;
+    const float cameraPitch =
+        -std::atan2(dy, std::sqrt(dx * dx + dz * dz)) * RAD_TO_DEG;
+
     // Milestone 1 is intentionally third person.  It proves that the real
     // SM64 camera/player drive the real Universal Modder Minecraft guest
     // before any custom compositor or collision code is introduced.

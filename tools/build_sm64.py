@@ -20,6 +20,38 @@ if not (SM64/"Makefile").is_file():
     raise SystemExit("Run setup-windows.bat first.")
 
 
+def prepare_clean_vendor() -> None:
+    """Rebuild the generated host from a pristine sm64-port checkout."""
+    if not (SM64 / ".git").is_dir():
+        raise SystemExit("vendor/sm64-port is not a Git checkout. Run setup-windows.bat first.")
+
+    # vendor/sm64-port is disposable generated state. Resetting + cleaning here
+    # prevents old untracked crossmod_bridge.c/crossmod_ws_api.* files from
+    # silently being picked up by sm64-port's wildcard Makefile.
+    subprocess.run(["git", "reset", "--hard", "HEAD"], cwd=SM64, check=True)
+    subprocess.run(["git", "clean", "-fdx"], cwd=SM64, check=True)
+
+    legacy = [
+        SM64 / "src" / "pc" / "crossmod_bridge.c",
+        SM64 / "src" / "pc" / "crossmod_bridge.h",
+        SM64 / "src" / "pc" / "crossmod_ws_api.cpp",
+        SM64 / "src" / "pc" / "crossmod_ws_api.h",
+        SM64 / "src" / "pc" / "gfx" / "mc_overlay_dx11.inc",
+    ]
+    leftovers = [str(p.relative_to(SM64)) for p in legacy if p.exists()]
+    if leftovers:
+        raise SystemExit("Legacy crossmod files survived cleanup: " + ", ".join(leftovers))
+
+    # Always regenerate the current clean host after git pull so users never
+    # build an older generated adapter by accident.
+    subprocess.run(
+        [sys.executable, str(ROOT / "tools" / "generate_sm64_host.py")],
+        cwd=ROOT,
+        check=True,
+    )
+
+
+prepare_clean_vendor()
 patch_sm64_toolchain(SM64)
 
 shutil.copy2(rom,SM64/"baserom.us.z64")

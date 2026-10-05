@@ -28,7 +28,51 @@ def patch(sm64: Path) -> None:
         "GetFileAttributesW(strFilename.c_str())",
     )
 
+    # New MinGW/GCC toolchains can fail to wire armips' wmain() entry point
+    # through -municode and end up looking for WinMain instead.  Keep wmain()
+    # as armips' real implementation, but expose the existing argv->wargv
+    # wrapper as an ordinary main() on Windows too, then do not rely on
+    # MinGW's Unicode CRT startup selection.
+    guarded_main = """#ifndef _WIN32
+
+int main(int argc, char* argv[])
+{
+	// convert input to wstring
+	std::vector<std::wstring> wideStrings;
+	for (int i = 0; i < argc; i++)
+	{
+		std::wstring str = convertUtf8ToWString(argv[i]);
+		wideStrings.push_back(str);
+	}
+
+	// create argv replacement
+	wchar_t** wargv = new wchar_t*[argc];
+	for (int i = 0; i < argc; i++)
+	{
+		wargv[i] = (wchar_t*) wideStrings[i].c_str();
+	}
+
+	int result = wmain(argc,wargv);
+
+	delete[] wargv;
+	return result;
+}
+
+#endif
+"""
+    unguarded_main = guarded_main.replace("#ifndef _WIN32\n\n", "", 1).replace("\n#endif\n", "\n", 1)
+    if guarded_main in text:
+        text = text.replace(guarded_main, unguarded_main, 1)
+
     armips.write_text(text, encoding="utf-8")
+
+    tools_makefile = sm64 / "tools" / "Makefile"
+    make = tools_makefile.read_text(encoding="utf-8")
+    make = make.replace(
+        "ifeq ($(HOST_ENV),MinGW)\n  armips_LDFLAGS += -municode\nendif\n",
+        "",
+    )
+    tools_makefile.write_text(make, encoding="utf-8")
     print("Patched bundled armips for current MinGW/GCC.")
 
 if __name__ == "__main__":

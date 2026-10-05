@@ -49,6 +49,7 @@ void um_passthrough_frame(void);
 #include <cstdio>
 #include <string>
 #include <unordered_set>
+#include <windows.h>
 
 extern "C" {
 #include "engine/surface_collision.h"
@@ -66,6 +67,58 @@ static int s_level = -1;
 static int s_area = -1;
 static std::unordered_set<unsigned long long> s_groundSampled;
 
+struct InputState {
+    bool attack = false;
+    bool use = false;
+    bool inventory = false;
+    bool drop = false;
+    bool swap = false;
+    bool escape = false;
+    bool slots[9] = {};
+};
+static InputState s_input;
+
+static bool is_down(int vk) {
+    return (GetAsyncKeyState(vk) & 0x8000) != 0;
+}
+
+static void send_key_state(const char *name, int vk, bool &previous) {
+    const bool down = is_down(vk);
+    if (down == previous) {
+        return;
+    }
+    previous = down;
+    char message[96];
+    std::snprintf(
+        message, sizeof(message),
+        "{\"t\":\"key\",\"k\":\"%s\",\"down\":%s}",
+        name, down ? "true" : "false"
+    );
+    s_ws.send(message);
+}
+
+static void publish_minecraft_input() {
+    send_key_state("attack", VK_LBUTTON, s_input.attack);
+    send_key_state("use", VK_RBUTTON, s_input.use);
+    send_key_state("inventory", 'E', s_input.inventory);
+    send_key_state("drop", 'Q', s_input.drop);
+    send_key_state("swap", 'F', s_input.swap);
+    send_key_state("escape", VK_ESCAPE, s_input.escape);
+
+    for (int i = 0; i < 9; ++i) {
+        const bool down = is_down('1' + i);
+        if (down && !s_input.slots[i]) {
+            char message[64];
+            std::snprintf(
+                message, sizeof(message),
+                "{\"t\":\"slot\",\"n\":%d}", i
+            );
+            s_ws.send(message);
+        }
+        s_input.slots[i] = down;
+    }
+}
+
 static unsigned long long column_key(int x, int z) {
     return (static_cast<unsigned long long>(static_cast<unsigned int>(x)) << 32)
         | static_cast<unsigned int>(z);
@@ -80,6 +133,7 @@ static void reset_ground_if_needed() {
     }
 
     s_generation = generation;
+    s_input = InputState{};
     s_level = gCurrLevelNum;
     s_area = gCurrAreaIndex;
     s_groundSampled.clear();
@@ -207,6 +261,7 @@ void um_passthrough_frame(void) {
     s_ws.send(message);
     reset_ground_if_needed();
     sample_ground(playerX, playerZ);
+    publish_minecraft_input();
 }
 ''', encoding="utf-8")
 

@@ -744,6 +744,21 @@ patch_once(mario,
     "            gMarioState->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;\n"
     "        }\n")
 
+# While the passthrough is attached, Minecraft owns the visible survival
+# HUD. Keep SM64 progression alive internally, but do not draw the duplicate
+# lives/stars/camera meter over Minecraft hearts/hunger/hotbar.
+hud = SM64 / "src" / "game" / "hud.c"
+patch_once(hud, '#include "hud.h"\n',
+    '#include "hud.h"\n#include "pc/sm64_passthrough.h"\n')
+patch_once(hud,
+    "void render_hud(void) {\n"
+    "    s16 hudDisplayFlags;\n",
+    "void render_hud(void) {\n"
+    "    if (um_passthrough_connected()) {\n"
+    "        return;\n"
+    "    }\n"
+    "    s16 hudDisplayFlags;\n")
+
 # When Minecraft owns locomotion, override Lakitu after native SM64 camera
 # processing.  This keeps SM64's rendered world and Minecraft's camera on the
 # same yaw/pitch instead of letting Lakitu drift independently.

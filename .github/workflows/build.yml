@@ -51,6 +51,11 @@ jobs:
           grep -q 'um_passthrough_frame' vendor/sm64-port/src/pc/pc_main.c
           grep -q 'um_passthrough_stop' vendor/sm64-port/src/pc/pc_main.c
           grep -q '127.0.0.1' vendor/sm64-port/src/pc/sm64_passthrough.cpp
+          grep -q '"t":"ground"' vendor/sm64-port/src/pc/sm64_passthrough.cpp
+          grep -q 'find_floor' vendor/sm64-port/src/pc/sm64_passthrough.cpp
+          grep -q 'mcpt_sm64_overlay.inc' vendor/sm64-port/src/pc/gfx/gfx_direct3d11.cpp
+          grep -q 'um_mcpt_draw' vendor/sm64-port/src/pc/gfx/gfx_direct3d11.cpp
+          grep -q 'Local\\MCPassthroughFrame' vendor/sm64-port/src/pc/gfx/mcpt_sm64_overlay.inc
           grep -q 'lws2_32' vendor/sm64-port/Makefile
           cmp vendor/universal-modder/examples/minecraft-gta5-passthrough/gta/src/ws.cpp vendor/sm64-port/src/pc/ws.cpp
           cmp vendor/universal-modder/examples/minecraft-gta5-passthrough/gta/src/ws.h vendor/sm64-port/src/pc/ws.h

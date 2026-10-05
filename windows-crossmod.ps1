@@ -121,6 +121,7 @@ function Setup {
     Write-Host "Refreshing Universal Modder + clean sm64-port..." -ForegroundColor Cyan
     Invoke-Python @("tools\bootstrap_um.py")
     Invoke-Python @("tools\sync_um_reference.py")
+    Invoke-Python @("tools\patch_guest_for_sm64.py")
     Invoke-Python @("tools\generate_sm64_host.py")
     Invoke-Python @("tools\patch_sm64_toolchain.py")
 

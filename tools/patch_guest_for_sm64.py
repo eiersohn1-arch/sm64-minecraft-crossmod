@@ -88,8 +88,8 @@ replace_once(
 client_input = CLIENT / "ClientInput.java"
 replace_once(
     client_input,
-    '\t\t\tswitch (m.get("t").getAsString()) {\n\t\t\tcase "key" -> {',
-    '\t\t\tswitch (m.get("t").getAsString()) {\n'
+    '\t\tswitch (m.get("t").getAsString()) {\n\t\t\tcase "key" -> {',
+    '\t\tswitch (m.get("t").getAsString()) {\n'
     '\t\t\tcase "move" -> {\n'
     '\t\t\t\tminecraft.options.keyUp.setDown(m.get("f").getAsBoolean());\n'
     '\t\t\t\tminecraft.options.keyDown.setDown(m.get("b").getAsBoolean());\n'

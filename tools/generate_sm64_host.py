@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Patch a clean sm64-port checkout into the first real Universal Modder host.
 
-Nothing from the legacy crossmod is reused.  The WebSocket implementation is
+Nothing from the legacy crossmod is reused. The WebSocket implementation is
 copied verbatim from Universal Modder's worked Minecraft passthrough example;
 this script only adds a thin SM64 pose adapter and build/lifecycle hooks.
 """
@@ -14,6 +14,7 @@ SM64 = ROOT / "vendor" / "sm64-port"
 REF = UM / "examples" / "minecraft-gta5-passthrough" / "gta" / "src"
 PC = SM64 / "src" / "pc"
 
+
 def patch_once(path: Path, old: str, new: str) -> None:
     text = path.read_text(encoding="utf-8")
     if new in text:
@@ -21,6 +22,7 @@ def patch_once(path: Path, old: str, new: str) -> None:
     if old not in text:
         raise RuntimeError(f"Patch marker missing in {path}: {old!r}")
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
 
 if not (SM64 / "src" / "game" / "game_init.c").is_file():
     raise SystemExit("Run setup-windows.bat first.")
@@ -43,10 +45,12 @@ void um_passthrough_frame(void);
 
 (PC / "sm64_passthrough.cpp").write_text(r'''#include "sm64_passthrough.h"
 #include "ws.h"
+#include <cmath>
 #include <cstdio>
 
 extern "C" {
 #include "game/camera.h"
+#include "game/level_update.h"
 #include "game/mario.h"
 }
 
@@ -66,11 +70,11 @@ void um_passthrough_frame(void) {
         return;
     }
 
-    // One SM64 world unit is mapped to one centimetre in the guest for this
-    // first oracle.  The transform is deliberately isolated here so collision
-    // and compositor milestones can share the exact same mapping later.
+    // Keep the transform in one place. Later collision and rendering stages
+    // must use these exact same constants.
     constexpr float SCALE = 100.0f;
     constexpr float MC_Y_ORIGIN = 64.0f;
+    constexpr float RAD_TO_DEG = 57.29577951308232f;
 
     const float cameraX = gLakituState.pos[0] / SCALE;
     const float cameraY = gLakituState.pos[1] / SCALE + MC_Y_ORIGIN;
@@ -84,29 +88,29 @@ void um_passthrough_frame(void) {
         180.0f
         - (float)gMarioState->faceAngle[1] * (360.0f / 65536.0f);
 
+    // Render Minecraft from the actual SM64 camera, not Mario's body heading.
     const float dx = (gLakituState.focus[0] - gLakituState.pos[0]) / SCALE;
     const float dy = (gLakituState.focus[1] - gLakituState.pos[1]) / SCALE;
     const float dz = -(gLakituState.focus[2] - gLakituState.pos[2]) / SCALE;
-    constexpr float RAD_TO_DEG = 57.29577951308232f;
     const float cameraYaw = std::atan2(-dx, dz) * RAD_TO_DEG;
     const float cameraPitch =
         -std::atan2(dy, std::sqrt(dx * dx + dz * dz)) * RAD_TO_DEG;
 
-    // Milestone 1 is intentionally third person.  It proves that the real
-    // SM64 camera/player drive the real Universal Modder Minecraft guest
-    // before any custom compositor or collision code is introduced.
+    // Milestone 1 intentionally uses third person. It proves that the real
+    // SM64 runtime drives Universal Modder's real Minecraft guest before
+    // compositor or collision code is added.
     char message[512];
     std::snprintf(
         message,
         sizeof(message),
         "{\"t\":\"cam\",\"f\":%llu,"
         "\"p\":[%.4f,%.4f,%.4f],"
-        "\"r\":[%.3f,0,0],"
+        "\"r\":[%.3f,%.3f,0],"
         "\"fov\":60,\"fp\":false,"
         "\"pl\":[%.4f,%.4f,%.4f],\"h\":%.3f}",
         ++s_frame,
         cameraX, cameraY, cameraZ,
-        bodyYaw,
+        cameraYaw, cameraPitch,
         playerX, playerY, playerZ,
         bodyYaw
     );
@@ -138,7 +142,7 @@ makefile = SM64 / "Makefile"
 patch_once(
     makefile,
     "PLATFORM_LDFLAGS := -lm -lxinput9_1_0 -lole32 -no-pie -mwindows",
-    "PLATFORM_LDFLAGS := -lm -lxinput9_1_0 -lole32 -lws2_32 -no-pie -mwindows",
+    "PLATFORM_LDFLAGS := -lm -lxinput9_1_0 -lole32 -lws2_32 -pthread -no-pie -mwindows",
 )
 
 print("Clean SM64 Universal Modder host installed into:", SM64)

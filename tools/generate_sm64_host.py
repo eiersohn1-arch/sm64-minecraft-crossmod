@@ -448,7 +448,12 @@ void um_passthrough_frame(void) {
     constexpr float Y0 = 64.0f;
     constexpr float RAD_TO_DEG = 57.29577951308232f;
 
-    const bool drive = um_passthrough_minecraft_authority();
+    // Bootstrap without a circular wait: while collision/spawn is being
+    // installed Minecraft follows the host.  On the next frame we request
+    // drive even before the first mcpos arrives; PlayerSync then reports the
+    // real Minecraft pose back and full authority becomes active.
+    const bool drive =
+        !native_sm64_action_owns_player() && !s_spawn_sync_pending;
 
     const float cam_x = gLakituState.curPos[0] / SCALE;
     const float cam_y = gLakituState.curPos[1] / SCALE + Y0;

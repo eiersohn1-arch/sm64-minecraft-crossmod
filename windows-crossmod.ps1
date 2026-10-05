@@ -70,9 +70,11 @@ function Wait-Guest([int]$Seconds = 120) {
     Fail "Minecraft did not open port 25599 within $Seconds seconds. Check the Minecraft Guest window."
 }
 
-function Invoke-Python([string[]]$Args) {
-    & python @Args
-    if ($LASTEXITCODE -ne 0) { Fail "Python command failed: python $($Args -join ' ')" }
+function Invoke-Python([string[]]$PythonArgs) {
+    & python @PythonArgs
+    if ($LASTEXITCODE -ne 0) {
+        Fail "Python command failed: python $($PythonArgs -join ' ')"
+    }
 }
 
 function Doctor([switch]$RequireRom, [switch]$RequireBuild) {

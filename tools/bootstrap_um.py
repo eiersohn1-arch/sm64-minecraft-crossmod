@@ -20,6 +20,11 @@ else:
 
 if not (SM64/".git").is_dir():
     run("git","clone","--depth","1","https://github.com/sm64-port/sm64-port.git",SM64)
+else:
+    # Every generated host must start from clean upstream tracked sources.
+    # Generated/untracked adapter files are overwritten by generate_sm64_host.py.
+    run("git","fetch","--depth","1","origin","master",cwd=SM64)
+    run("git","reset","--hard","FETCH_HEAD",cwd=SM64)
 
 required=[
  "skills/mashup-mods/SKILL.md",

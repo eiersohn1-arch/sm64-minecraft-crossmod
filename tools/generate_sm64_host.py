@@ -340,8 +340,101 @@ int um_passthrough_connected(void) {
     return s_ws.connected() ? 1 : 0;
 }
 
+int um_passthrough_minecraft_authority(void) {
+    return s_ws.connected()
+        && s_mc.valid
+        && !native_sm64_action_owns_player();
+}
+
+void um_passthrough_apply_mario_proxy(struct MarioState *m) {
+    if (!m || !m->marioObj || !um_passthrough_minecraft_authority()) return;
+
+    constexpr float SCALE = 100.0f;
+    constexpr float Y0 = 64.0f;
+    constexpr float ANGLE = 65536.0f / 360.0f;
+
+    m->pos[0] = static_cast<float>(s_mc.x * SCALE);
+    m->pos[1] = static_cast<float>((s_mc.y - Y0) * SCALE);
+    m->pos[2] = static_cast<float>(-s_mc.z * SCALE);
+
+    m->vel[0] = static_cast<float>(s_mc.vx * SCALE);
+    m->vel[1] = static_cast<float>(s_mc.vy * SCALE);
+    m->vel[2] = static_cast<float>(-s_mc.vz * SCALE);
+    m->forwardVel = static_cast<float>(
+        std::sqrt(s_mc.vx * s_mc.vx + s_mc.vz * s_mc.vz) * SCALE
+    );
+
+    const float sm64Yaw = 180.0f - s_mc.yaw;
+    m->faceAngle[0] = 0;
+    m->faceAngle[1] = static_cast<s16>(sm64Yaw * ANGLE);
+    m->faceAngle[2] = 0;
+
+    m->marioObj->oPosX = m->pos[0];
+    m->marioObj->oPosY = m->pos[1];
+    m->marioObj->oPosZ = m->pos[2];
+    m->marioObj->header.gfx.pos[0] = m->pos[0];
+    m->marioObj->header.gfx.pos[1] = m->pos[1];
+    m->marioObj->header.gfx.pos[2] = m->pos[2];
+    m->marioObj->header.gfx.angle[1] = m->faceAngle[1];
+    m->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;
+
+    m->floorHeight = find_floor(
+        m->pos[0], m->pos[1] + 180.0f, m->pos[2], &m->floor
+    );
+}
+
+void um_passthrough_override_camera(void) {
+    if (!um_passthrough_minecraft_authority() || gCamera == nullptr) return;
+
+    constexpr float SCALE = 100.0f;
+    constexpr float Y0 = 64.0f;
+    constexpr float DEG = 0.01745329251994329577f;
+
+    const float yaw = s_mc.yaw * DEG;
+    const float pitch = s_mc.pitch * DEG;
+    const float cp = std::cos(pitch);
+
+    // Vanilla Minecraft look vector, converted to SM64's flipped Z axis.
+    const float fx = -std::sin(yaw) * cp;
+    const float fy = -std::sin(pitch);
+    const float fz = -std::cos(yaw) * cp;
+
+    const float eyeX = static_cast<float>(s_mc.x * SCALE);
+    const float eyeY = static_cast<float>((s_mc.y - Y0 + 1.62) * SCALE);
+    const float eyeZ = static_cast<float>(-s_mc.z * SCALE);
+
+    const float distance = s_first_person ? 0.0f : 400.0f;
+    Vec3f pos = {
+        eyeX - fx * distance,
+        eyeY - fy * distance,
+        eyeZ - fz * distance
+    };
+    Vec3f focus = {
+        eyeX + fx * 200.0f,
+        eyeY + fy * 200.0f,
+        eyeZ + fz * 200.0f
+    };
+
+    vec3f_copy(gLakituState.curPos, pos);
+    vec3f_copy(gLakituState.pos, pos);
+    vec3f_copy(gLakituState.goalPos, pos);
+    vec3f_copy(gLakituState.curFocus, focus);
+    vec3f_copy(gLakituState.focus, focus);
+    vec3f_copy(gLakituState.goalFocus, focus);
+    vec3f_copy(gCamera->pos, pos);
+    vec3f_copy(gCamera->focus, focus);
+    gLakituState.roll = 0;
+}
+
 void um_passthrough_before_frame(void) {
-    if (s_ws.connected() && gMarioState && gMarioState->marioObj) {
+    if (!s_ws.connected()) return;
+
+    poll_guest_messages();
+
+    if (gMarioState && gMarioState->marioObj) {
+        if (um_passthrough_minecraft_authority()) {
+            um_passthrough_apply_mario_proxy(gMarioState);
+        }
         gMarioState->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;
     }
 }
@@ -355,6 +448,8 @@ void um_passthrough_frame(void) {
     constexpr float Y0 = 64.0f;
     constexpr float RAD_TO_DEG = 57.29577951308232f;
 
+    const bool drive = um_passthrough_minecraft_authority();
+
     const float cam_x = gLakituState.curPos[0] / SCALE;
     const float cam_y = gLakituState.curPos[1] / SCALE + Y0;
     const float cam_z = -gLakituState.curPos[2] / SCALE;
@@ -365,21 +460,35 @@ void um_passthrough_frame(void) {
     const float dx = (gLakituState.curFocus[0] - gLakituState.curPos[0]) / SCALE;
     const float dy = (gLakituState.curFocus[1] - gLakituState.curPos[1]) / SCALE;
     const float dz = -(gLakituState.curFocus[2] - gLakituState.curPos[2]) / SCALE;
-    const float yaw = std::atan2(-dx, dz) * RAD_TO_DEG;
-    const float pitch = -std::atan2(
+    float yaw = std::atan2(-dx, dz) * RAD_TO_DEG;
+    float pitch = -std::atan2(
         dy, std::sqrt(dx * dx + dz * dz)) * RAD_TO_DEG;
-    const float body_yaw = 180.0f
+    float body_yaw = 180.0f
         - static_cast<float>(gMarioState->faceAngle[1])
           * (360.0f / 65536.0f);
 
-    char msg[512];
+    if (drive) {
+        yaw = s_mc.yaw;
+        pitch = s_mc.pitch;
+        body_yaw = s_mc.yaw;
+    }
+
+    char msg[640];
     std::snprintf(msg, sizeof(msg),
         "{\"t\":\"cam\",\"f\":%llu,"
         "\"p\":[%.4f,%.4f,%.4f],"
-        "\"r\":[%.3f,%.3f,0],\"fov\":60,"
-        "\"fp\":false,\"pl\":[%.4f,%.4f,%.4f],\"h\":%.3f}",
-        ++s_frame, cam_x, cam_y, cam_z, yaw, pitch,
-        player_x, player_y, player_z, body_yaw);
+        "\"r\":[%.3f,%.3f,0],\"fov\":70,"
+        "\"fp\":%s,\"pl\":[%.4f,%.4f,%.4f],\"h\":%.3f,"
+        "\"drive\":%s,\"look\":[%.3f,%.3f]}",
+        ++s_frame,
+        cam_x, cam_y, cam_z,
+        yaw, pitch,
+        s_first_person ? "true" : "false",
+        player_x, player_y, player_z,
+        body_yaw,
+        drive ? "true" : "false",
+        yaw, pitch
+    );
     s_ws.send(msg);
 
     publish_ground();

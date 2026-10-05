@@ -98,4 +98,4 @@ jobs:
           cd vendor/sm64-port
           g++ -std=gnu++17 -fsyntax-only             -DTARGET_PC=1 -DTARGET_WINDOWS=1 -DVERSION_US=1             -DAVOID_UB=1 -DNON_MATCHING=1 -DNO_SEGMENTED_MEMORY=1             -DUSE_SYSTEM_MALLOC=1 -D_LANGUAGE_C=1             -I. -Iinclude -Isrc -Isrc/pc -Isrc/pc/gfx             src/pc/sm64_passthrough.cpp src/pc/ws.cpp
           g++ -std=gnu++17 -fsyntax-only             -DENABLE_DX11=1 -DTARGET_WINDOWS=1 -DNO_SEGMENTED_MEMORY=1             -DUSE_SYSTEM_MALLOC=1 -DWIDESCREEN=1 -D_LANGUAGE_C=1             -DVERSION_US=1 -I. -Iinclude -Isrc -Isrc/pc -Isrc/pc/gfx             src/pc/gfx/gfx_direct3d11.cpp
-          gcc -std=gnu11 -fsyntax-only             -DTARGET_PC=1 -DTARGET_WINDOWS=1 -DVERSION_US=1             -DAVOID_UB=1 -DNON_MATCHING=1             -I. -Iinclude -Isrc -Isrc/pc             src/game/mario.c
+          gcc -std=gnu11 -fsyntax-only             -DTARGET_PC=1 -DTARGET_WINDOWS=1 -DVERSION_US=1             -DAVOID_UB=1 -DNON_MATCHING=1             -I. -Iinclude -Isrc -Isrc/pc             src/game/mario.c src/game/camera.c

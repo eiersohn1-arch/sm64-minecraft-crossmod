@@ -180,6 +180,7 @@ static void publish_input() {
     send_key("inventory", 'E', s_inventory);
     send_key("drop", 'Q', s_drop);
     send_key("swap", 'F', s_swap);
+    send_key("escape", VK_ESCAPE, s_escape);
 
     for (int i = 0; i < 9; ++i) {
         bool now = down('1' + i);
@@ -189,6 +190,62 @@ static void publish_input() {
             s_ws.send(msg);
         }
         s_slots[i] = now;
+    }
+
+    const bool forward = down('W');
+    const bool back = down('S');
+    const bool left = down('A');
+    const bool right = down('D');
+    const bool jump = down(VK_SPACE);
+    const bool sneak = down(VK_SHIFT);
+    const bool sprint = down(VK_CONTROL);
+
+    char movement[192];
+    std::snprintf(
+        movement, sizeof(movement),
+        "{\"t\":\"move\",\"f\":%s,\"b\":%s,\"l\":%s,\"r\":%s,"
+        "\"jump\":%s,\"sneak\":%s,\"sprint\":%s}",
+        forward ? "true" : "false",
+        back ? "true" : "false",
+        left ? "true" : "false",
+        right ? "true" : "false",
+        jump ? "true" : "false",
+        sneak ? "true" : "false",
+        sprint ? "true" : "false"
+    );
+    s_ws.send(movement);
+
+    if (host_has_focus()) {
+        HWND hwnd = GetForegroundWindow();
+        RECT rect{};
+        if (hwnd && GetClientRect(hwnd, &rect)) {
+            POINT center{
+                (rect.right - rect.left) / 2,
+                (rect.bottom - rect.top) / 2
+            };
+            POINT screenCenter = center;
+            ClientToScreen(hwnd, &screenCenter);
+
+            POINT cursor{};
+            if (GetCursorPos(&cursor)) {
+                const int dx = cursor.x - screenCenter.x;
+                const int dy = cursor.y - screenCenter.y;
+                if (dx != 0 || dy != 0) {
+                    char look[128];
+                    std::snprintf(
+                        look, sizeof(look),
+                        "{\"t\":\"look\",\"dx\":%d,\"dy\":%d}",
+                        dx, dy
+                    );
+                    s_ws.send(look);
+                }
+                SetCursorPos(screenCenter.x, screenCenter.y);
+            }
+        }
+    }
+
+    if (host_has_focus() && (GetAsyncKeyState(VK_F5) & 0x0001)) {
+        s_first_person = !s_first_person;
     }
 }
 

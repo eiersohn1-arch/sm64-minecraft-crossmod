@@ -53,7 +53,12 @@ void um_passthrough_apply_mario_proxy(struct MarioState *m);
 #include <cstdio>
 #include <string>
 #include <unordered_set>
+
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 #include <windows.h>
+#undef near
+#undef far
 
 extern "C" {
 #include "sm64.h"

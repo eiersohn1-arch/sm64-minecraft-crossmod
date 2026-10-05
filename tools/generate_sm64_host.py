@@ -36,9 +36,13 @@ for name in ("ws.cpp", "ws.h"):
 #ifdef __cplusplus
 extern "C" {
 #endif
+struct MarioState;
 void um_passthrough_start(void);
 void um_passthrough_stop(void);
 int um_passthrough_connected(void);
+int um_passthrough_minecraft_authority(void);
+void um_passthrough_apply_mario_proxy(struct MarioState *m);
+void um_passthrough_override_camera(void);
 void um_passthrough_before_frame(void);
 void um_passthrough_frame(void);
 #ifdef __cplusplus
@@ -78,8 +82,18 @@ static int s_generation = -1;
 static int s_level = -1;
 static int s_area = -1;
 static std::unordered_set<unsigned long long> s_ground_sampled;
-static bool s_attack, s_use, s_inventory, s_drop, s_swap;
+static bool s_attack, s_use, s_inventory, s_drop, s_swap, s_escape;
 static bool s_slots[9] = {};
+static bool s_first_person = false;
+static bool s_spawn_sync_pending = false;
+
+struct McPose {
+    bool valid = false;
+    double x = 0.0, y = 64.0, z = 0.0;
+    double vx = 0.0, vy = 0.0, vz = 0.0;
+    float yaw = 0.0f, pitch = 0.0f;
+};
+static McPose s_mc;
 
 static bool host_has_focus() {
     HWND hwnd = GetForegroundWindow();

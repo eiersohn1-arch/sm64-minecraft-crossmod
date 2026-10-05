@@ -21,9 +21,13 @@ SM64 also samples its native `find_floor()` collision around Mario and sends it 
 `{"t":"ground","c":[...]}` protocol. The guest turns those columns into invisible barrier collision.
 
 This is still a milestone build:
-- the first compositor blends Minecraft correctly by alpha, but full SM64-vs-Minecraft depth occlusion is the next pass;
-- floor collision is present, while walls/ceilings and moving surfaces still need the finer collision pass;
-- Minecraft movement authority/input forwarding is not switched over yet; the first oracle keeps SM64 driving the player/camera.
+- Minecraft world colour is depth-tested against SM64's native D3D11 depth buffer; hand/HUD/screens stay on top;
+- Minecraft now owns normal locomotion: WASD, jump, sneak, sprint, vanilla gravity and velocity;
+- Minecraft sends `mcpose` back to SM64 and Mario becomes an invisible interaction/progression proxy;
+- SM64 automatically takes authority back for cutscene/automatic/object action groups so native scripted sequences can continue;
+- left/right click, hotbar 1-9, E, Q, F and Escape are forwarded from the focused SM64 window;
+- the visible camera is still SM64-authoritative for this milestone; Minecraft-style mouse look/F5 comes next;
+- floor collision is present, while walls/ceilings and moving surfaces still need the finer collision pass.
 
 ## Architecture
 
@@ -88,10 +92,10 @@ start-fake-host.bat
 
 ## Next milestones
 
-1. depth-test Minecraft world colour against SM64's native D3D11 depth buffer;
+1. add Minecraft-style raw mouse look and F5 first/third-person camera authority;
 2. stream SM64 walls, ceilings and dynamic/moving surfaces rather than only floor columns;
-3. forward SM64-window keyboard/mouse into Minecraft;
-4. make vanilla Minecraft locomotion authoritative and keep Mario only as an invisible SM64 interaction/progression proxy;
-5. sync Minecraft-created blocks/events back into SM64 collision and gameplay.
+3. sync Minecraft-created block collision/events back into SM64;
+4. add frame reprojection/latency compensation on top of the working depth compositor;
+5. switch the SM64 guest profile from the reference creative setup toward the requested survival hearts/hunger behavior without breaking the passthrough oracle.
 
 The user's own legally obtained game files stay local.

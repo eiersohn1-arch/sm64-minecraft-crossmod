@@ -2,6 +2,7 @@
 """Build the clean Universal Modder SM64 host on Windows through MSYS2 MinGW64."""
 from pathlib import Path
 import os, shutil, subprocess, sys
+from patch_sm64_toolchain import patch as patch_sm64_toolchain
 
 ROOT=Path(__file__).resolve().parents[1]
 SM64=ROOT/"vendor"/"sm64-port"
@@ -19,43 +20,7 @@ if not (SM64/"Makefile").is_file():
     raise SystemExit("Run setup-windows.bat first.")
 
 
-def patch_old_sm64_build_tools() -> None:
-    """Make sm64-port's bundled armips build on current MinGW/GCC."""
-    armips = SM64 / "tools" / "armips.cpp"
-    if not armips.is_file():
-        raise SystemExit(f"Bundled armips source missing: {armips}")
-
-    text = armips.read_text(encoding="utf-8")
-
-    # Modern MinGW can encounter SymbolTable's int64_t declarations before a
-    # header has actually defined int64_t.  That produces the misleading
-    # declaration/definition mismatch shown by GCC while building armips.
-    if "#include <cstdint>\n#include <cstdio>" not in text:
-        marker = "#include <cstdio>"
-        if marker not in text:
-            raise SystemExit("Could not patch armips: <cstdio> marker missing.")
-        text = text.replace(
-            marker,
-            "#include <cstdint>\n#include <cstdio>",
-            1,
-        )
-
-    # armips stores paths as std::wstring.  Current MinGW may resolve the
-    # generic Win32 macros to the ANSI A functions unless UNICODE is globally
-    # defined.  Call the wide variants explicitly.
-    text = text.replace(
-        "GetFileAttributesEx(fileName.c_str(),GetFileExInfoStandard,&attr)",
-        "GetFileAttributesExW(fileName.c_str(),GetFileExInfoStandard,&attr)",
-    )
-    text = text.replace(
-        "GetFileAttributes(strFilename.c_str())",
-        "GetFileAttributesW(strFilename.c_str())",
-    )
-
-    armips.write_text(text, encoding="utf-8")
-    print("Patched bundled armips for current MinGW/GCC.")
-
-patch_old_sm64_build_tools()
+patch_sm64_toolchain(SM64)
 
 shutil.copy2(rom,SM64/"baserom.us.z64")
 

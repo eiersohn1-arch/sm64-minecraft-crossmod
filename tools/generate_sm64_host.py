@@ -86,6 +86,7 @@ static bool s_attack, s_use, s_inventory, s_drop, s_swap, s_escape;
 static bool s_slots[9] = {};
 static bool s_first_person = false;
 static bool s_spawn_sync_pending = false;
+static int s_drive_delay_frames = 0;
 
 struct McPose {
     bool valid = false;
@@ -267,6 +268,7 @@ static void reset_ground_if_needed() {
     s_ground_sampled.clear();
     s_mc.valid = false;
     s_spawn_sync_pending = true;
+    s_drive_delay_frames = 6;
     s_ws.send("{\"t\":\"clear\"}");
 }
 
@@ -453,8 +455,13 @@ void um_passthrough_frame(void) {
     // installed Minecraft follows the host.  On the next frame we request
     // drive even before the first mcpos arrives; PlayerSync then reports the
     // real Minecraft pose back and full authority becomes active.
+    if (!s_spawn_sync_pending && s_drive_delay_frames > 0) {
+        --s_drive_delay_frames;
+    }
     const bool drive =
-        !native_sm64_action_owns_player() && !s_spawn_sync_pending;
+        !native_sm64_action_owns_player()
+        && !s_spawn_sync_pending
+        && s_drive_delay_frames == 0;
 
     const float cam_x = gLakituState.curPos[0] / SCALE;
     const float cam_y = gLakituState.curPos[1] / SCALE + Y0;

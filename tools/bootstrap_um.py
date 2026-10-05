@@ -29,6 +29,8 @@ required=[
  "examples/minecraft-gta5-passthrough/mc/src/client/java/dev/rehan/passthrough/client/PlayerSync.java",
  "examples/minecraft-gta5-passthrough/gta/src/ws.cpp",
  "examples/minecraft-gta5-passthrough/gta/src/ws.h",
+ "examples/minecraft-gta5-passthrough/gta/src/compositor.cpp",
+ "examples/minecraft-gta5-passthrough/gta/src/compositor.h",
  "examples/minecraft-gta5-passthrough/host/fakehost.py",
 ]
 missing=[p for p in required if not (UM/p).is_file()]

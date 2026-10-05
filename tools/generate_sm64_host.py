@@ -716,6 +716,15 @@ mario = SM64 / "src" / "game" / "mario.c"
 patch_once(mario, '#include "rumble_init.h"\n',
     '#include "rumble_init.h"\n#include "pc/sm64_passthrough.h"\n')
 patch_once(mario,
+    "        update_mario_health(gMarioState);\n"
+    "        update_mario_info_for_cam(gMarioState);\n",
+    "        update_mario_health(gMarioState);\n"
+    "        if (um_passthrough_minecraft_authority()) {\n"
+    "            um_passthrough_apply_mario_proxy(gMarioState);\n"
+    "        }\n"
+    "        update_mario_info_for_cam(gMarioState);\n")
+
+patch_once(mario,
     "        mario_update_hitbox_and_cap_model(gMarioState);\n",
     "        mario_update_hitbox_and_cap_model(gMarioState);\n"
     "        if (um_passthrough_connected()) {\n"

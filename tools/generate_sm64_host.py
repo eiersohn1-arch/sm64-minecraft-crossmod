@@ -126,7 +126,6 @@ gfx = PC / "gfx"
 (gfx / "mcpt_sm64_overlay.inc").write_text(r'''#include <cstdint>
 #include <cstring>
 
-namespace {
 constexpr const wchar_t *UM_MCPT_MAPPING = L"Local\\MCPassthroughFrame";
 constexpr uint32_t UM_MCPT_MAGIC = 0x5450434D;
 constexpr size_t UM_MCPT_HEADER = 4096;
@@ -308,7 +307,7 @@ float4 PSMain(VSOut input) : SV_TARGET {
 
 static bool um_mcpt_ensure_textures(uint32_t w, uint32_t h) {
     if (w == um_mcpt.width && h == um_mcpt.height &&
-        um_mcpt.worldTexture && um_mcpt.overlayTexture) {
+        um_mcpt.worldTexture.Get() != nullptr && um_mcpt.overlayTexture.Get() != nullptr) {
         return true;
     }
 
@@ -405,7 +404,7 @@ static void um_mcpt_draw() {
         um_mcpt.lastPublish = published;
     }
 
-    if (!um_mcpt.worldSrv || !um_mcpt.overlaySrv) {
+    if (um_mcpt.worldSrv.Get() == nullptr || um_mcpt.overlaySrv.Get() == nullptr) {
         return;
     }
 
@@ -443,7 +442,6 @@ static void um_mcpt_draw() {
     d3d.context->PSSetShaderResources(0, 2, nullSrvs);
     um_mcpt_invalidate_sm64_cache();
 }
-} // namespace
 ''', encoding="utf-8")
 
 pc_main = PC / "pc_main.c"
@@ -469,16 +467,16 @@ patch_once(
 gfx_d3d11 = gfx / "gfx_direct3d11.cpp"
 patch_once(
     gfx_d3d11,
-    "static LARGE_INTEGER last_time, accumulated_time, frequency;\\n",
-    "static LARGE_INTEGER last_time, accumulated_time, frequency;\\n"
-    "#include \\\"mcpt_sm64_overlay.inc\\\"\\n",
+    "static LARGE_INTEGER last_time, accumulated_time, frequency;\n",
+    "static LARGE_INTEGER last_time, accumulated_time, frequency;\n"
+    "#include \"mcpt_sm64_overlay.inc\"\n",
 )
 patch_once(
     gfx_d3d11,
-    "static void gfx_d3d11_end_frame(void) {\\n}\\n",
-    "static void gfx_d3d11_end_frame(void) {\\n"
-    "    um_mcpt_draw();\\n"
-    "}\\n",
+    "static void gfx_d3d11_end_frame(void) {\n}\n",
+    "static void gfx_d3d11_end_frame(void) {\n"
+    "    um_mcpt_draw();\n"
+    "}\n",
 )
 
 makefile = SM64 / "Makefile"

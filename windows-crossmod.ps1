@@ -110,6 +110,9 @@ function Doctor([switch]$RequireRom, [switch]$RequireBuild) {
 
 function Setup {
     Doctor
+    if (Test-Port25599) {
+        Fail "A Minecraft passthrough guest is already running on port 25599. Close Minecraft and SM64 before setup/build so the new code can be regenerated safely."
+    }
     $bash = Get-MsysBash
 
     Write-Host ""

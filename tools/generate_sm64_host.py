@@ -323,6 +323,7 @@ static void publish_ground() {
                 x, y, z
             );
             s_ws.send(command);
+            s_ws.send("{\"t\":\"cmd\",\"c\":\"gamemode survival @a\"}");
             s_spawn_sync_pending = false;
         }
     }

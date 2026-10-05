@@ -20,7 +20,13 @@ function Require-Command([string]$Name, [string]$Hint) {
 }
 
 function Get-JavaMajor {
-    $line = (& java -version 2>&1 | Select-Object -First 1)
+    # java -version intentionally writes its version banner to STDERR.
+    # With ErrorActionPreference=Stop, invoking it directly would turn a
+    # perfectly valid Java install into NativeCommandError on Windows
+    # PowerShell 5.1. Run it through cmd.exe so stdout/stderr are merged as
+    # plain text before PowerShell sees them.
+    $output = & cmd.exe /d /c "java -version 2>&1"
+    $line = $output | Select-Object -First 1
     if ($line -match 'version\s+"?(\d+)') { return [int]$Matches[1] }
     if ($line -match 'openjdk\s+(\d+)') { return [int]$Matches[1] }
     return 0

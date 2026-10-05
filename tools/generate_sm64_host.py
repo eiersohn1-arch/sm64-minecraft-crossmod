@@ -123,10 +123,7 @@ void um_passthrough_frame(void) {
 # directly inside SM64's native D3D11 renderer. Depth occlusion is added in
 # the next milestone; this pass proves the shared-memory/render path first.
 gfx = PC / "gfx"
-(gfx / "mcpt_sm64_overlay.inc").write_text(r'''#include <cstdint>
-#include <cstring>
-
-constexpr const wchar_t *UM_MCPT_MAPPING = L"Local\\MCPassthroughFrame";
+(gfx / "mcpt_sm64_overlay.inc").write_text(r'''constexpr const wchar_t *UM_MCPT_MAPPING = L"Local\\MCPassthroughFrame";
 constexpr uint32_t UM_MCPT_MAGIC = 0x5450434D;
 constexpr size_t UM_MCPT_HEADER = 4096;
 constexpr size_t UM_MCPT_SLOT_DESC = 256;
@@ -152,6 +149,7 @@ struct UmMcptOverlayState {
     ComPtr<ID3D11SamplerState> sampler;
     ComPtr<ID3D11BlendState> blend;
     ComPtr<ID3D11DepthStencilState> noDepth;
+    ComPtr<ID3D11RasterizerState> raster;
     bool pipelineReady = false;
 };
 
@@ -250,7 +248,7 @@ float4 PSMain(VSOut input) : SV_TARGET {
     ComPtr<ID3DBlob> psBlob;
     ComPtr<ID3DBlob> errors;
     HRESULT hr = d3d.D3DCompile(
-        shader, std::strlen(shader), "UM MCPT SM64 compositor",
+        shader, strlen(shader), "UM MCPT SM64 compositor",
         nullptr, nullptr, "VSMain", "vs_4_0",
         D3DCOMPILE_OPTIMIZATION_LEVEL2, 0,
         vsBlob.GetAddressOf(), errors.GetAddressOf()
@@ -259,7 +257,7 @@ float4 PSMain(VSOut input) : SV_TARGET {
 
     errors.Reset();
     hr = d3d.D3DCompile(
-        shader, std::strlen(shader), "UM MCPT SM64 compositor",
+        shader, strlen(shader), "UM MCPT SM64 compositor",
         nullptr, nullptr, "PSMain", "ps_4_0",
         D3DCOMPILE_OPTIMIZATION_LEVEL2, 0,
         psBlob.GetAddressOf(), errors.GetAddressOf()
@@ -299,6 +297,15 @@ float4 PSMain(VSOut input) : SV_TARGET {
     dd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
     dd.DepthFunc = D3D11_COMPARISON_ALWAYS;
     if (FAILED(d3d.device->CreateDepthStencilState(&dd, um_mcpt.noDepth.GetAddressOf())))
+        return false;
+
+    D3D11_RASTERIZER_DESC rd = {};
+    rd.FillMode = D3D11_FILL_SOLID;
+    rd.CullMode = D3D11_CULL_NONE;
+    rd.FrontCounterClockwise = TRUE;
+    rd.DepthClipEnable = TRUE;
+    rd.ScissorEnable = FALSE;
+    if (FAILED(d3d.device->CreateRasterizerState(&rd, um_mcpt.raster.GetAddressOf())))
         return false;
 
     um_mcpt.pipelineReady = true;
@@ -421,6 +428,7 @@ static void um_mcpt_draw() {
     vp.MaxDepth = 1.0f;
 
     d3d.context->RSSetViewports(1, &vp);
+    d3d.context->RSSetState(um_mcpt.raster.Get());
     d3d.context->OMSetRenderTargets(
         1, d3d.backbuffer_view.GetAddressOf(), nullptr
     );

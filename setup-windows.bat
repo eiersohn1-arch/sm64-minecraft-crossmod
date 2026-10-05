@@ -8,5 +8,6 @@ python tools\patch_guest_for_sm64.py || (pause & exit /b 1)
 python tools\generate_sm64_host.py || (pause & exit /b 1)
 echo.
 echo Universal Modder reference, Minecraft guest and clean SM64 host adapter are ready.
-echo Next: run start-guest.bat
+echo Next: put baserom.us.z64 in rom\ or the repo root.
+echo Then run build-sm64.bat and start-crossmod.bat
 pause

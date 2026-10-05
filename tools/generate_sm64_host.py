@@ -38,6 +38,7 @@ extern "C" {
 #endif
 void um_passthrough_start(void);
 void um_passthrough_stop(void);
+void um_passthrough_before_frame(void);
 void um_passthrough_frame(void);
 #ifdef __cplusplus
 }
@@ -181,6 +182,12 @@ void um_passthrough_start(void) {
 
 void um_passthrough_stop(void) {
     s_ws.stop();
+}
+
+void um_passthrough_before_frame(void) {
+    if (s_ws.connected() && gMarioState && gMarioState->marioObj) {
+        gMarioState->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;
+    }
 }
 
 void um_passthrough_frame(void) {
@@ -442,7 +449,8 @@ pc_main = PC / "pc_main.c"
 patch_once(pc_main, '#include "configfile.h"\n',
     '#include "configfile.h"\n#include "sm64_passthrough.h"\n')
 patch_once(pc_main,
-    "    game_loop_one_iteration();\n",
+    "    gfx_start_frame();\n    game_loop_one_iteration();\n",
+    "    gfx_start_frame();\n    um_passthrough_before_frame();\n"
     "    game_loop_one_iteration();\n    um_passthrough_frame();\n")
 patch_once(pc_main,
     '    gfx_init(wm_api, rendering_api, "Super Mario 64 PC-Port", configFullscreen);\n',

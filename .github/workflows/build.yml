@@ -18,7 +18,7 @@ jobs:
           java-version: "25"
 
       - name: Validate clean bootstrap tooling
-        run: python -m py_compile tools/bootstrap_um.py tools/sync_um_reference.py tools/generate_sm64_host.py tools/build_sm64.py tools/patch_sm64_toolchain.py tools/verify_clean_rebuild.py
+        run: python -m py_compile tools/bootstrap_um.py tools/sync_um_reference.py tools/patch_guest_for_sm64.py tools/generate_sm64_host.py tools/build_sm64.py tools/patch_sm64_toolchain.py tools/verify_clean_rebuild.py
 
       - name: Reject legacy crossmod implementation
         shell: bash
@@ -33,11 +33,14 @@ jobs:
       - name: Sync Minecraft guest from Universal Modder
         run: python tools/sync_um_reference.py
 
-      - name: Verify guest is the Universal Modder reference
+      - name: Verify guest starts from the Universal Modder reference
         shell: bash
         run: diff -qr vendor/universal-modder/examples/minecraft-gta5-passthrough/mc generated/minecraft-guest
 
-      - name: Build verbatim Universal Modder Minecraft guest
+      - name: Apply tiny SM64 guest visibility delta
+        run: python tools/patch_guest_for_sm64.py
+
+      - name: Build Universal Modder Minecraft guest with SM64 delta
         working-directory: generated/minecraft-guest
         run: ./gradlew build --no-daemon
 

@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Validate clean bootstrap
-        run: python -m py_compile tools/bootstrap_um.py
+        run: python -m py_compile tools/bootstrap_um.py tools/sync_um_reference.py
       - name: Reject legacy crossmod implementation
         shell: bash
         run: |
@@ -20,3 +20,8 @@ jobs:
           test ! -e src/client/java/dev/eiersohn/sm64cross/client/bridge/Sm64TerrainProxy.java
       - name: Bootstrap Universal Modder source of truth
         run: python tools/bootstrap_um.py
+      - name: Sync Minecraft guest from Universal Modder
+        run: python tools/sync_um_reference.py
+      - name: Verify guest is the Universal Modder reference
+        shell: bash
+        run: diff -qr vendor/universal-modder/examples/minecraft-gta5-passthrough/mc generated/minecraft-guest

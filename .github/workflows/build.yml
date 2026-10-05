@@ -51,13 +51,13 @@ jobs:
           grep -q 'um_passthrough_frame' vendor/sm64-port/src/pc/pc_main.c
           grep -q 'um_passthrough_stop' vendor/sm64-port/src/pc/pc_main.c
           grep -q '127.0.0.1' vendor/sm64-port/src/pc/sm64_passthrough.cpp
-          grep -q '"t":"ground"' vendor/sm64-port/src/pc/sm64_passthrough.cpp
+          grep -Fq '\"t\":\"ground\"' vendor/sm64-port/src/pc/sm64_passthrough.cpp
           grep -q 'find_floor' vendor/sm64-port/src/pc/sm64_passthrough.cpp
           grep -q 'mcpt_sm64_overlay.inc' vendor/sm64-port/src/pc/gfx/gfx_direct3d11.cpp
           grep -q 'um_mcpt_draw' vendor/sm64-port/src/pc/gfx/gfx_direct3d11.cpp
           grep -q 'depth_stencil_srv' vendor/sm64-port/src/pc/gfx/gfx_direct3d11.cpp
           grep -q 'D3D11_BIND_SHADER_RESOURCE' vendor/sm64-port/src/pc/gfx/gfx_direct3d11.cpp
-          grep -q 'Local\\MCPassthroughFrame' vendor/sm64-port/src/pc/gfx/mcpt_sm64_overlay.inc
+          grep -Fq 'Local\\MCPassthroughFrame' vendor/sm64-port/src/pc/gfx/mcpt_sm64_overlay.inc
           grep -q 'Texture2D<float> McDepth' vendor/sm64-port/src/pc/gfx/mcpt_sm64_overlay.inc
           grep -q 'Texture2D<float> HostDepth' vendor/sm64-port/src/pc/gfx/mcpt_sm64_overlay.inc
           grep -q 'sFOVState.fov + sFOVState.fovOffset' vendor/sm64-port/src/pc/sm64_passthrough.cpp

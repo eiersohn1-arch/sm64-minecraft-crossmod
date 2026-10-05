@@ -95,6 +95,25 @@ start-crossmod.bat
 
 For normal use, prefer `windows-all.bat` for a fresh build or `start-crossmod.bat` after a successful build.
 
+## Minecraft controls in the SM64 window
+
+When the crossmod is connected, the **SM64 window is the active game window**, but these inputs are forwarded into the real Minecraft player:
+
+- `W A S D`: vanilla Minecraft movement
+- `Space`: jump
+- `Left Shift`: sneak
+- `Left Ctrl`: sprint
+- mouse: Minecraft look
+- left click: attack / break
+- right click: use / place
+- `1-9`: hotbar
+- `E`: inventory
+- `Q`: drop
+- `F`: swap off-hand
+- `F5`: first/third person
+
+Minecraft now owns normal locomotion and gravity.  SM64's Mario is kept invisible and is snapped to Steve's reported Minecraft pose so SM64 stars, triggers, doors and progression can continue to use Mario as an interaction proxy.
+
 ## Next order
 
 1. prove SM64 + Minecraft world/HUD are visible together;

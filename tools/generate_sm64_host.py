@@ -107,6 +107,33 @@ static bool down(int vk) {
     return host_has_focus() && (GetAsyncKeyState(vk) & 0x8000) != 0;
 }
 
+static bool native_sm64_action_owns_player() {
+    if (gMarioState == nullptr) return true;
+    const u32 group = gMarioState->action & ACT_GROUP_MASK;
+    return group == ACT_GROUP_CUTSCENE
+        || group == ACT_GROUP_AUTOMATIC
+        || group == ACT_GROUP_OBJECT;
+}
+
+static void poll_guest_messages() {
+    std::string message;
+    while (s_ws.poll(message)) {
+        McPose pose;
+        int matched = std::sscanf(
+            message.c_str(),
+            "{\\\"t\\\":\\\"mcpos\\\",\\\"pos\\\":[%lf,%lf,%lf],"
+            "\\\"vel\\\":[%lf,%lf,%lf],\\\"r\\\":[%f,%f]",
+            &pose.x, &pose.y, &pose.z,
+            &pose.vx, &pose.vy, &pose.vz,
+            &pose.yaw, &pose.pitch
+        );
+        if (matched == 8) {
+            pose.valid = true;
+            s_mc = pose;
+        }
+    }
+}
+
 static void send_key(const char *name, int vk, bool &previous) {
     if (!host_has_focus()) {
         if (previous) {

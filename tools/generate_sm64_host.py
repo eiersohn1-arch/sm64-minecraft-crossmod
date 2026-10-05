@@ -350,7 +350,8 @@ float4 PS(O i):SV_TARGET {
 
 static bool um_textures(uint32_t w, uint32_t h) {
     if (um_mcpt.width == w && um_mcpt.height == h &&
-        um_mcpt.world && um_mcpt.overlay) return true;
+        um_mcpt.world.Get() != nullptr &&
+        um_mcpt.overlay.Get() != nullptr) return true;
     um_mcpt.world_srv.Reset(); um_mcpt.overlay_srv.Reset();
     um_mcpt.world.Reset(); um_mcpt.overlay.Reset();
 

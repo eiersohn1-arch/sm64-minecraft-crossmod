@@ -55,7 +55,12 @@ jobs:
           grep -q 'find_floor' vendor/sm64-port/src/pc/sm64_passthrough.cpp
           grep -q 'mcpt_sm64_overlay.inc' vendor/sm64-port/src/pc/gfx/gfx_direct3d11.cpp
           grep -q 'um_mcpt_draw' vendor/sm64-port/src/pc/gfx/gfx_direct3d11.cpp
+          grep -q 'depth_stencil_srv' vendor/sm64-port/src/pc/gfx/gfx_direct3d11.cpp
+          grep -q 'D3D11_BIND_SHADER_RESOURCE' vendor/sm64-port/src/pc/gfx/gfx_direct3d11.cpp
           grep -q 'Local\\MCPassthroughFrame' vendor/sm64-port/src/pc/gfx/mcpt_sm64_overlay.inc
+          grep -q 'Texture2D<float> McDepth' vendor/sm64-port/src/pc/gfx/mcpt_sm64_overlay.inc
+          grep -q 'Texture2D<float> HostDepth' vendor/sm64-port/src/pc/gfx/mcpt_sm64_overlay.inc
+          grep -q 'sFOVState.fov + sFOVState.fovOffset' vendor/sm64-port/src/pc/sm64_passthrough.cpp
           grep -q 'lws2_32' vendor/sm64-port/Makefile
           cmp vendor/universal-modder/examples/minecraft-gta5-passthrough/gta/src/ws.cpp vendor/sm64-port/src/pc/ws.cpp
           cmp vendor/universal-modder/examples/minecraft-gta5-passthrough/gta/src/ws.h vendor/sm64-port/src/pc/ws.h

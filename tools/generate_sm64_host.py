@@ -52,7 +52,7 @@ void um_passthrough_stop(void) {
     s_ws.stop();
 }
 void um_passthrough_frame(void) {
-    if (!s_ws.connected() || gMarioState == nullptr || gLakituState.pos == nullptr) return;
+    if (!s_ws.connected() || gMarioState == nullptr) return;
     // Minimal milestone: prove the real SM64 runtime drives the real UM Minecraft guest.
     // Scale is intentionally isolated here; later collision/render milestones share this transform.
     constexpr float S = 100.0f;

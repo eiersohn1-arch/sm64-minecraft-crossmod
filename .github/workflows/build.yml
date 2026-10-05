@@ -51,8 +51,13 @@ jobs:
         shell: bash
         run: |
           grep -q 'um_passthrough_start' vendor/sm64-port/src/pc/pc_main.c
-          grep -q 'um_passthrough_frame' vendor/sm64-port/src/pc/pc_main.c
+          grep -q 'um_passthrough_before_frame' vendor/sm64-port/src/pc/pc_main.c
+          grep -q 'um_passthrough_after_frame' vendor/sm64-port/src/pc/pc_main.c
           grep -q 'um_passthrough_stop' vendor/sm64-port/src/pc/pc_main.c
+          grep -q 'um_passthrough_minecraft_authority' vendor/sm64-port/src/game/mario.c
+          grep -q 'GRAPH_RENDER_INVISIBLE' vendor/sm64-port/src/game/mario.c
+          grep -q 'mcpose' vendor/sm64-port/src/pc/sm64_passthrough.cpp
+          grep -q '\"mc\"' vendor/sm64-port/src/pc/sm64_passthrough.cpp
           grep -q '127.0.0.1' vendor/sm64-port/src/pc/sm64_passthrough.cpp
           grep -Fq '\"t\":\"ground\"' vendor/sm64-port/src/pc/sm64_passthrough.cpp
           grep -q 'find_floor' vendor/sm64-port/src/pc/sm64_passthrough.cpp

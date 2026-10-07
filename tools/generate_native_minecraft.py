@@ -469,6 +469,22 @@ extern "C" int native_minecraft_selected_slot(void) {
     return gPlayer.selectedSlot;
 }
 
+extern "C" int native_minecraft_block_count(void) {
+    return (int)gBlocks.size();
+}
+
+extern "C" int native_minecraft_get_block(
+    int index, int *x, int *y, int *z, int *type
+) {
+    if (index < 0 || index >= (int)gBlocks.size()) return 0;
+    const NativeBlock &b = gBlocks[(size_t)index];
+    if (x) *x = b.x;
+    if (y) *y = b.y;
+    if (z) *z = b.z;
+    if (type) *type = b.type;
+    return 1;
+}
+
 extern "C" void native_minecraft_get_render_state(
     float *x, float *y, float *z,
     float *yaw, float *pitch,

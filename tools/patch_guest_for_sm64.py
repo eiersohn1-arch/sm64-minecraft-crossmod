@@ -59,6 +59,7 @@ replace_once(
     host_link,
     '\t\t\t\tcase "ground" -> WorldBridge.solid(ints(m.getAsJsonArray("c")));\n',
     '\t\t\t\tcase "ground" -> WorldBridge.solid(ints(m.getAsJsonArray("c")));\n'
+    '\t\t\t\tcase "water" -> WorldBridge.water(ints(m.getAsJsonArray("c")));\n'
     '\t\t\t\tcase "surfacebegin" -> WorldBridge.beginSurfaceSnapshot();\n'
     '\t\t\t\tcase "surfaceend" -> WorldBridge.endSurfaceSnapshot();\n'
     '\t\t\t\tcase "surfacectx" -> WorldBridge.context(m.get("k").getAsString());\n',
@@ -78,12 +79,29 @@ replace_once(
     'private static final Set<BlockPos> barriers = ConcurrentHashMap.newKeySet();',
     'private static final Set<BlockPos> hostSurfaces = ConcurrentHashMap.newKeySet();\n'
     '\t/** Desired host cells while a fresh SM64 collision snapshot is being installed. */\n'
-    '\tprivate static Set<BlockPos> desiredHostSurfaces;',
+    '\tprivate static Set<BlockPos> desiredHostSurfaces;\n'
+    '\t/** Real Minecraft water cells mirrored from SM64 water boxes. */\n'
+    '\tprivate static final Set<BlockPos> hostWater = ConcurrentHashMap.newKeySet();\n'
+    '\tprivate static Set<BlockPos> desiredHostWater;',
 )
 replace_once(
     world_bridge,
     '\t\tbarriers.clear();\n',
     '\t\thostSurfaces.clear();\n',
+)
+replace_once(
+    world_bridge,
+    '\tstatic void detach() {\n'
+    '\t\tserver = null;\n'
+    '\t\thostSurfaces.clear();\n'
+    '\t}\n',
+    '\tstatic void detach() {\n'
+    '\t\tserver = null;\n'
+    '\t\thostSurfaces.clear();\n'
+    '\t\thostWater.clear();\n'
+    '\t\tdesiredHostSurfaces = null;\n'
+    '\t\tdesiredHostWater = null;\n'
+    '\t}\n',
 )
 replace_once(
     world_bridge,
@@ -130,11 +148,41 @@ replace_once(
     world_bridge,
     '\t/** Run a command as the server (op). Results go to the log, not to chat (send_command_feedback is off). */\n'
     '\tpublic static void command(final String command) {\n',
+    '\t/** Mirror SM64 water volumes as actual Minecraft source-water blocks. */\n'
+    '\tpublic static void water(final int[] columns) {\n'
+    '\t\tMinecraftServer s = server;\n'
+    '\t\tif (s == null) return;\n'
+    '\t\ts.execute(() -> {\n'
+    '\t\t\tServerLevel level = s.overworld();\n'
+    '\t\t\tBlockState water = Blocks.WATER.defaultBlockState();\n'
+    '\t\t\tBlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();\n'
+    '\t\t\tplacingGround = true;\n'
+    '\t\t\tfor (int i = 0; i + 3 < columns.length; i += 4) {\n'
+    '\t\t\t\tfor (int y = columns[i + 2]; y <= columns[i + 3]; y++) {\n'
+    '\t\t\t\t\tpos.set(columns[i], y, columns[i + 1]);\n'
+    '\t\t\t\t\tif (!level.isInWorldBounds(pos)) continue;\n'
+    '\t\t\t\t\tBlockPos immutable = pos.immutable();\n'
+    '\t\t\t\t\tBlockState current = level.getBlockState(pos);\n'
+    '\t\t\t\t\tif (current.isAir()) {\n'
+    '\t\t\t\t\t\tlevel.setBlock(pos, water, Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE);\n'
+    '\t\t\t\t\t\thostWater.add(immutable);\n'
+    '\t\t\t\t\t\tif (desiredHostWater != null) desiredHostWater.add(immutable);\n'
+    '\t\t\t\t\t} else if (hostWater.contains(immutable) && current.is(Blocks.WATER)) {\n'
+    '\t\t\t\t\t\tif (desiredHostWater != null) desiredHostWater.add(immutable);\n'
+    '\t\t\t\t\t}\n'
+    '\t\t\t\t}\n'
+    '\t\t\t}\n'
+    '\t\t\tplacingGround = false;\n'
+    '\t\t});\n'
+    '\t}\n\n'
     '\t/** Begin an atomic-ish host collision refresh. Executor ordering keeps begin/ground/end ordered. */\n'
     '\tpublic static void beginSurfaceSnapshot() {\n'
     '\t\tMinecraftServer s = server;\n'
     '\t\tif (s == null) return;\n'
-    '\t\ts.execute(() -> desiredHostSurfaces = new HashSet<>());\n'
+    '\t\ts.execute(() -> {\n'
+    '\t\t\tdesiredHostSurfaces = new HashSet<>();\n'
+    '\t\t\tdesiredHostWater = new HashSet<>();\n'
+    '\t\t});\n'
     '\t}\n\n'
     '\t/** Remove stale streamed cells only after the complete fresh snapshot has arrived. */\n'
     '\tpublic static void endSurfaceSnapshot() {\n'
@@ -152,8 +200,17 @@ replace_once(
     '\t\t\t\t\thostSurfaces.remove(pos);\n'
     '\t\t\t\t}\n'
     '\t\t\t}\n'
+    '\t\t\tfor (BlockPos pos : new HashSet<>(hostWater)) {\n'
+    '\t\t\t\tif (desiredHostWater == null || !desiredHostWater.contains(pos)) {\n'
+    '\t\t\t\t\tif (level.getBlockState(pos).is(Blocks.WATER)) {\n'
+    '\t\t\t\t\t\tlevel.setBlock(pos, Blocks.AIR.defaultBlockState(), Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE);\n'
+    '\t\t\t\t\t}\n'
+    '\t\t\t\t\thostWater.remove(pos);\n'
+    '\t\t\t\t}\n'
+    '\t\t\t}\n'
     '\t\t\tplacingGround = false;\n'
     '\t\t\tdesiredHostSurfaces = null;\n'
+    '\t\t\tdesiredHostWater = null;\n'
     '\t\t});\n'
     '\t}\n\n'
     "\t/** Switch the persistent SM64 terrain-edit context and remove the previous level's streamed surface cells. */\n"
@@ -171,9 +228,16 @@ replace_once(
     '\t\t\t\t\tlevel.setBlock(pos, Blocks.AIR.defaultBlockState(), Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE);\n'
     '\t\t\t\t}\n'
     '\t\t\t}\n'
+    '\t\t\tfor (BlockPos pos : hostWater) {\n'
+    '\t\t\t\tif (level.getBlockState(pos).is(Blocks.WATER)) {\n'
+    '\t\t\t\t\tlevel.setBlock(pos, Blocks.AIR.defaultBlockState(), Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE);\n'
+    '\t\t\t\t}\n'
+    '\t\t\t}\n'
     '\t\t\tplacingGround = false;\n'
     '\t\t\thostSurfaces.clear();\n'
+    '\t\t\thostWater.clear();\n'
     '\t\t\tdesiredHostSurfaces = null;\n'
+    '\t\t\tdesiredHostWater = null;\n'
     '\t\t\tHostSurfaceState.setContext(key);\n'
     '\t\t});\n'
     '\t}\n\n'

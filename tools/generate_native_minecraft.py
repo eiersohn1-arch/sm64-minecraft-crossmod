@@ -121,6 +121,15 @@ struct NativePlayer {
 
 NativePlayer gPlayer;
 
+struct NativeBlock {
+    int x;
+    int y;
+    int z;
+    int type;
+};
+
+std::vector<NativeBlock> gBlocks;
+
 bool host_has_focus() {
     HWND hwnd = GetForegroundWindow();
     if (!hwnd) return false;

@@ -255,7 +255,8 @@ void simulate_movement() {
         gPlayer.vy = JUMP_VELOCITY;
         gPlayer.onGround = false;
     } else {
-        gPlayer.vy = std::max(gPlayer.vy - GRAVITY, -MAX_FALL);
+        const float falling = gPlayer.vy - GRAVITY;
+        gPlayer.vy = falling > -MAX_FALL ? falling : -MAX_FALL;
     }
 
     float nextX = gPlayer.x + gPlayer.vx;

@@ -9,6 +9,12 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#ifdef near
+#undef near
+#endif
+#ifdef far
+#undef far
+#endif
 
 extern "C" {
 #include "engine/surface_collision.h"

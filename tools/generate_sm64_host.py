@@ -179,6 +179,18 @@ patch_once(
 )
 patch_once(
     dxgi,
+    "        case WM_SIZE:\n"
+    "            gfx_dxgi_on_resize();\n"
+    "            break;\n",
+    "        case WM_SIZE:\n"
+    "            gfx_dxgi_on_resize();\n"
+    "            if (LOWORD(l_param) >= 320 && HIWORD(l_param) >= 240) {\n"
+    "                um_passthrough_view((int)LOWORD(l_param), (int)HIWORD(l_param));\n"
+    "            }\n"
+    "            break;\n",
+)
+patch_once(
+    dxgi,
     "        case WM_KEYDOWN:\n"
     "            onkeydown(w_param, l_param);\n"
     "            break;\n"
@@ -193,6 +205,15 @@ patch_once(
     "            um_passthrough_key_event((int)w_param, 0);\n"
     "            onkeyup(w_param, l_param);\n"
     "            break;\n"
+    "        case WM_MOUSEMOVE: {\n"
+    "            RECT client{};\n"
+    "            if (GetClientRect(h_wnd, &client)) {\n"
+    "                int x = (int)(short)LOWORD(l_param);\n"
+    "                int y = (int)(short)HIWORD(l_param);\n"
+    "                um_passthrough_pointer(x, y, client.right - client.left, client.bottom - client.top);\n"
+    "            }\n"
+    "            break;\n"
+    "        }\n"
     "        case WM_LBUTTONDOWN:\n"
     "            um_passthrough_mouse_button(0, 1);\n"
     "            break;\n"

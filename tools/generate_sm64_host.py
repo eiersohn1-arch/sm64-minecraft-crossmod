@@ -11,7 +11,7 @@ import shutil
 
 ROOT = Path(__file__).resolve().parents[1]
 UM = ROOT / "vendor" / "universal-modder"
-SM64 = ROOT / "vendor" / "sm64-port"
+SM64 = ROOT / "vendor" / "sm64coopdx"
 ADAPTER = ROOT / "host_adapter"
 REF = UM / "examples" / "minecraft-gta5-passthrough" / "gta" / "src"
 PC = SM64 / "src" / "pc"
@@ -142,7 +142,7 @@ static void crossmod_add_dynamic_triangle(
     s16 indices[3] = { 0, 1, 2 };
     s16 *cursor = indices;
 
-    struct Surface *surface = read_surface_data(vertexData, &cursor);
+    struct Surface *surface = read_surface_data(vertexData, &cursor, SURFACE_POOL_DYNAMIC);
     if (surface == NULL) {
         return;
     }
@@ -151,7 +151,7 @@ static void crossmod_add_dynamic_triangle(
     surface->flags |= SURFACE_FLAG_DYNAMIC;
     surface->room = 0;
     surface->object = NULL;
-    add_surface(surface, TRUE);
+    add_surface(surface);
 }
 
 void crossmod_add_dynamic_box(
@@ -217,7 +217,8 @@ patch_once(
     "    gLakituState.lastFrameAction = sMarioCamState->action;\n",
 )
 
-# Lifecycle in the real SM64 executable.
+# Lifecycle in SM64CoopDX. Minecraft is polled once per gameplay update;
+# the D3D11 compositor may still draw multiple interpolated CoopDX frames.
 pc_main = PC / "pc_main.c"
 patch_once(
     pc_main,
@@ -226,19 +227,17 @@ patch_once(
 )
 patch_once(
     pc_main,
-    "    gfx_start_frame();\n"
-    "    game_loop_one_iteration();\n",
-    "    gfx_start_frame();\n"
+    "    CTX_EXTENT(CTX_GAME_LOOP, game_loop_one_iteration);\n",
     "    um_passthrough_before_frame();\n"
-    "    game_loop_one_iteration();\n"
+    "    CTX_EXTENT(CTX_GAME_LOOP, game_loop_one_iteration);\n"
     "    um_passthrough_frame();\n",
 )
 patch_once(
     pc_main,
-    '    gfx_init(wm_api, rendering_api, "Super Mario 64 PC-Port", configFullscreen);\n',
-    '    gfx_init(wm_api, rendering_api, "Super Mario 64 PC-Port", configFullscreen);\n'
-    '    um_passthrough_start();\n'
-    '    atexit(um_passthrough_stop);\n',
+    '        gfx_init(gWindowApi, gRenderApi, TITLE);\n',
+    '        gfx_init(gWindowApi, gRenderApi, TITLE);\n'
+    '        um_passthrough_start();\n'
+    '        atexit(um_passthrough_stop);\n',
 )
 
 # Draw Universal Modder's world/depth/overlay shared-memory frame inside SM64.
@@ -263,7 +262,7 @@ patch_once(
     "}\n",
 )
 
-# Real raw mouse + event-driven keys from the SM64 DXGI window.
+# Real raw mouse + event-driven keys from the SM64CoopDX DXGI window.
 dxgi = GFX / "gfx_dxgi.cpp"
 patch_once(
     dxgi,
@@ -272,95 +271,111 @@ patch_once(
 )
 patch_once(
     dxgi,
-    "        case WM_ACTIVATEAPP:\n"
+    "        case WM_SIZE: {\n"
+    "            gfx_dxgi_on_resize();\n"
+    "            return 0;\n"
+    "        }\n",
+    "        case WM_SIZE: {\n"
+    "            gfx_dxgi_on_resize();\n"
+    "            if (LOWORD(l_param) >= 320 && HIWORD(l_param) >= 240) {\n"
+    "                um_passthrough_view((int)LOWORD(l_param), (int)HIWORD(l_param));\n"
+    "            }\n"
+    "            return 0;\n"
+    "        }\n",
+)
+patch_once(
+    dxgi,
+    "        case WM_ACTIVATEAPP: {\n"
     "            if (dxgi.on_all_keys_up != nullptr) {\n",
-    "        case WM_ACTIVATEAPP:\n"
+    "        case WM_ACTIVATEAPP: {\n"
     "            um_passthrough_focus_changed(w_param != 0);\n"
     "            if (dxgi.on_all_keys_up != nullptr) {\n",
 )
 patch_once(
     dxgi,
-    "        case WM_SIZE:\n"
-    "            gfx_dxgi_on_resize();\n"
-    "            break;\n",
-    "        case WM_SIZE:\n"
-    "            gfx_dxgi_on_resize();\n"
-    "            if (LOWORD(l_param) >= 320 && HIWORD(l_param) >= 240) {\n"
-    "                um_passthrough_view((int)LOWORD(l_param), (int)HIWORD(l_param));\n"
-    "            }\n"
-    "            break;\n",
+    "        case WM_KEYDOWN: {\n"
+    "            gfx_dxgi_on_key_down(w_param, l_param);\n",
+    "        case WM_KEYDOWN: {\n"
+    "            um_passthrough_key_event((int)w_param, 1);\n"
+    "            gfx_dxgi_on_key_down(w_param, l_param);\n",
 )
 patch_once(
     dxgi,
-    "        case WM_KEYDOWN:\n"
-    "            onkeydown(w_param, l_param);\n"
-    "            break;\n"
-    "        case WM_KEYUP:\n"
-    "            onkeyup(w_param, l_param);\n"
-    "            break;\n",
-    "        case WM_KEYDOWN:\n"
-    "            um_passthrough_key_event((int)w_param, 1);\n"
-    "            onkeydown(w_param, l_param);\n"
-    "            break;\n"
-    "        case WM_KEYUP:\n"
+    "        case WM_KEYUP: {\n"
+    "            gfx_dxgi_on_key_up(w_param, l_param);\n",
+    "        case WM_KEYUP: {\n"
     "            um_passthrough_key_event((int)w_param, 0);\n"
-    "            onkeyup(w_param, l_param);\n"
-    "            break;\n"
+    "            gfx_dxgi_on_key_up(w_param, l_param);\n",
+)
+patch_once(
+    dxgi,
+    "        case WM_MOUSEWHEEL: {\n"
+    "            gfx_dxgi_on_scroll(w_param);\n",
     "        case WM_MOUSEMOVE: {\n"
     "            RECT client{};\n"
     "            if (GetClientRect(h_wnd, &client)) {\n"
-    "                int x = (int)(short)LOWORD(l_param);\n"
-    "                int y = (int)(short)HIWORD(l_param);\n"
-    "                um_passthrough_pointer(x, y, client.right - client.left, client.bottom - client.top);\n"
+    "                um_passthrough_pointer((int)(short)LOWORD(l_param), (int)(short)HIWORD(l_param),\n"
+    "                    client.right - client.left, client.bottom - client.top);\n"
     "            }\n"
-    "            break;\n"
+    "            return 0;\n"
     "        }\n"
-    "        case WM_LBUTTONDOWN:\n"
-    "            um_passthrough_mouse_button(0, 1);\n"
-    "            break;\n"
-    "        case WM_LBUTTONUP:\n"
-    "            um_passthrough_mouse_button(0, 0);\n"
-    "            break;\n"
-    "        case WM_RBUTTONDOWN:\n"
-    "            um_passthrough_mouse_button(1, 1);\n"
-    "            break;\n"
-    "        case WM_RBUTTONUP:\n"
-    "            um_passthrough_mouse_button(1, 0);\n"
-    "            break;\n"
-    "        case WM_MBUTTONDOWN:\n"
-    "            um_passthrough_mouse_button(2, 1);\n"
-    "            break;\n"
-    "        case WM_MBUTTONUP:\n"
-    "            um_passthrough_mouse_button(2, 0);\n"
-    "            break;\n"
-    "        case WM_MOUSEWHEEL:\n"
+    "        case WM_MOUSEWHEEL: {\n"
     "            um_passthrough_scroll(GET_WHEEL_DELTA_WPARAM(w_param));\n"
-    "            break;\n"
-    "        case WM_SETCURSOR:\n"
+    "            gfx_dxgi_on_scroll(w_param);\n",
+)
+patch_once(
+    dxgi,
+    "        case WM_LBUTTONDOWN: {\n"
+    "            if (!gRomIsValid) {\n",
+    "        case WM_LBUTTONDOWN: {\n"
+    "            um_passthrough_mouse_button(0, 1);\n"
+    "            if (!gRomIsValid) {\n",
+)
+patch_once(
+    dxgi,
+    "        case WM_DROPFILES: {\n",
+    "        case WM_LBUTTONUP: {\n"
+    "            um_passthrough_mouse_button(0, 0);\n"
+    "            return 0;\n"
+    "        }\n"
+    "        case WM_RBUTTONDOWN: {\n"
+    "            um_passthrough_mouse_button(1, 1);\n"
+    "            return 0;\n"
+    "        }\n"
+    "        case WM_RBUTTONUP: {\n"
+    "            um_passthrough_mouse_button(1, 0);\n"
+    "            return 0;\n"
+    "        }\n"
+    "        case WM_MBUTTONDOWN: {\n"
+    "            um_passthrough_mouse_button(2, 1);\n"
+    "            return 0;\n"
+    "        }\n"
+    "        case WM_MBUTTONUP: {\n"
+    "            um_passthrough_mouse_button(2, 0);\n"
+    "            return 0;\n"
+    "        }\n"
+    "        case WM_SETCURSOR: {\n"
     "            if (um_passthrough_pointer_locked() && LOWORD(l_param) == HTCLIENT) {\n"
     "                SetCursor(nullptr);\n"
     "                return TRUE;\n"
     "            }\n"
-    "            return DefWindowProcW(h_wnd, message, w_param, l_param);\n"
+    "            break;\n"
+    "        }\n"
     "        case WM_INPUT: {\n"
     "            RAWINPUT raw{};\n"
     "            UINT size = sizeof(raw);\n"
-    "            if (GetRawInputData((HRAWINPUT)l_param, RID_INPUT, &raw, &size,\n"
-    "                                sizeof(RAWINPUTHEADER)) == size\n"
+    "            if (GetRawInputData((HRAWINPUT)l_param, RID_INPUT, &raw, &size, sizeof(RAWINPUTHEADER)) == size\n"
     "                && raw.header.dwType == RIM_TYPEMOUSE) {\n"
     "                um_passthrough_raw_mouse(raw.data.mouse.lLastX, raw.data.mouse.lLastY);\n"
     "            }\n"
-    "            break;\n"
-    "        }\n",
+    "            return 0;\n"
+    "        }\n"
+    "        case WM_DROPFILES: {\n",
 )
 patch_once(
     dxgi,
-    "        dxgi.h_wnd = CreateWindowW(WINCLASS_NAME, w_title, WS_OVERLAPPEDWINDOW,\n"
-    "            CW_USEDEFAULT, 0, wr.right - wr.left, wr.bottom - wr.top, nullptr, nullptr, nullptr, nullptr);\n"
     "    });\n\n"
     "    load_dxgi_library();\n",
-    "        dxgi.h_wnd = CreateWindowW(WINCLASS_NAME, w_title, WS_OVERLAPPEDWINDOW,\n"
-    "            CW_USEDEFAULT, 0, wr.right - wr.left, wr.bottom - wr.top, nullptr, nullptr, nullptr, nullptr);\n"
     "    });\n\n"
     "    RAWINPUTDEVICE rawMouse{};\n"
     "    rawMouse.usUsagePage = 0x01;\n"
@@ -375,11 +390,11 @@ patch_once(
 makefile = SM64 / "Makefile"
 patch_once(
     makefile,
-    "PLATFORM_LDFLAGS := -lm -lxinput9_1_0 -lole32 -no-pie -mwindows",
-    "PLATFORM_LDFLAGS := -lm -lxinput9_1_0 -lole32 -lws2_32 -pthread -no-pie -mwindows",
+    "  BACKEND_LDFLAGS += -ld3dcompiler -ldxgi -ldxguid\n",
+    "  BACKEND_LDFLAGS += -ld3dcompiler -ldxgi -ldxguid -lws2_32 -pthread\n",
 )
 
-print("Installed real Universal Modder Minecraft passthrough into SM64.")
+print("Installed real Universal Modder Minecraft passthrough into SM64CoopDX.")
 print("  guest: Universal Modder minecraft-gta5-passthrough/mc")
 print("  transport: Universal Modder ws.cpp/ws.h")
 print("  input: SM64 Win32 raw input -> real Minecraft key mappings")

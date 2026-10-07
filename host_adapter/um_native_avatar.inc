@@ -216,7 +216,7 @@ static bool um_native_project(
 
     out.position[0] = ndcX;
     out.position[1] = ndcY;
-    out.position[2] = std::clamp(depth, 0.0f, 1.0f);
+    out.position[2] = depth < 0.0f ? 0.0f : (depth > 1.0f ? 1.0f : depth);
     out.position[3] = 1.0f;
     out.color[0] = colorR;
     out.color[1] = colorG;

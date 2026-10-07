@@ -5,6 +5,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$Tools = Join-Path $Root ".tools"
+$LocalJdkRoot = Join-Path $Tools "jdk25"
+$script:GuestStartTime = $null
 Set-Location $Root
 
 function Fail([string]$Message) {
@@ -19,17 +22,79 @@ function Require-Command([string]$Name, [string]$Hint) {
     }
 }
 
-function Get-JavaMajor {
-    # java -version intentionally writes its version banner to STDERR.
-    # With ErrorActionPreference=Stop, invoking it directly would turn a
-    # perfectly valid Java install into NativeCommandError on Windows
-    # PowerShell 5.1. Run it through cmd.exe so stdout/stderr are merged as
-    # plain text before PowerShell sees them.
-    $output = & cmd.exe /d /c "java -version 2>&1"
+function Get-JavaMajorFrom([string]$JavaExe) {
+    if (-not (Test-Path $JavaExe)) { return 0 }
+    $command = '"{0}" -version 2>&1' -f $JavaExe
+    $output = & cmd.exe /d /c $command
     $line = $output | Select-Object -First 1
     if ($line -match 'version\s+"?(\d+)') { return [int]$Matches[1] }
     if ($line -match 'openjdk\s+(\d+)') { return [int]$Matches[1] }
     return 0
+}
+
+function Use-JavaHome([string]$Home) {
+    $env:JAVA_HOME = $Home
+    $env:Path = "$Home\bin;$env:Path"
+}
+
+function Find-LocalJava25 {
+    if (-not (Test-Path $LocalJdkRoot)) { return $null }
+    $java = Get-ChildItem $LocalJdkRoot -Filter java.exe -Recurse -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -match '\\bin\\java\.exe$' } |
+        Select-Object -First 1
+    if ($java -and (Get-JavaMajorFrom $java.FullName) -eq 25) {
+        return Split-Path -Parent (Split-Path -Parent $java.FullName)
+    }
+    return $null
+}
+
+function Ensure-Java25 {
+    if ($env:JAVA_HOME) {
+        $candidate = Join-Path $env:JAVA_HOME "bin\java.exe"
+        if ((Get-JavaMajorFrom $candidate) -eq 25) {
+            Use-JavaHome $env:JAVA_HOME
+            Write-Host "Java 25: OK ($candidate)" -ForegroundColor Green
+            return
+        }
+    }
+
+    $system = Get-Command java -ErrorAction SilentlyContinue
+    if ($system -and (Get-JavaMajorFrom $system.Source) -eq 25) {
+        $home = Split-Path -Parent (Split-Path -Parent $system.Source)
+        Use-JavaHome $home
+        Write-Host "Java 25: OK ($($system.Source))" -ForegroundColor Green
+        return
+    }
+
+    $local = Find-LocalJava25
+    if ($local) {
+        Use-JavaHome $local
+        Write-Host "Java 25: OK (local $local)" -ForegroundColor Green
+        return
+    }
+
+    Write-Host "Java 25 not found. Downloading local Temurin JDK 25..." -ForegroundColor Cyan
+    New-Item -ItemType Directory -Force -Path $Tools | Out-Null
+    if (Test-Path $LocalJdkRoot) { Remove-Item $LocalJdkRoot -Recurse -Force }
+    New-Item -ItemType Directory -Force -Path $LocalJdkRoot | Out-Null
+
+    try {
+        $api = "https://api.adoptium.net/v3/assets/latest/25/hotspot?architecture=x64&heap_size=normal&image_type=jdk&jvm_impl=hotspot&os=windows&vendor=eclipse"
+        $assets = Invoke-RestMethod -Uri $api -UseBasicParsing
+        $asset = $assets | Where-Object { $_.binary.package.link } | Select-Object -First 1
+        if (-not $asset) { throw "Adoptium returned no Windows x64 JDK 25 package." }
+        $zip = Join-Path $Tools "jdk25.zip"
+        Invoke-WebRequest -Uri $asset.binary.package.link -OutFile $zip -UseBasicParsing
+        Expand-Archive -Path $zip -DestinationPath $LocalJdkRoot -Force
+        Remove-Item $zip -Force
+    } catch {
+        Fail "Could not download JDK 25 automatically: $($_.Exception.Message)"
+    }
+
+    $local = Find-LocalJava25
+    if (-not $local) { Fail "JDK 25 download finished, but java.exe was not found." }
+    Use-JavaHome $local
+    Write-Host "Java 25 installed locally: $local" -ForegroundColor Green
 }
 
 function Get-MsysBash {
@@ -57,17 +122,17 @@ function Test-Port25599 {
     }
 }
 
-function Wait-Guest([int]$Seconds = 120) {
-    Write-Host "Waiting for Minecraft guest on 127.0.0.1:25599 ..."
+function Wait-Guest([int]$Seconds = 180) {
+    Write-Host "Waiting for real Minecraft on 127.0.0.1:25599 ..." -ForegroundColor Cyan
     $deadline = (Get-Date).AddSeconds($Seconds)
     while ((Get-Date) -lt $deadline) {
         if (Test-Port25599) {
-            Write-Host "Minecraft guest is ready." -ForegroundColor Green
+            Write-Host "Minecraft passthrough is ready." -ForegroundColor Green
             return
         }
         Start-Sleep -Milliseconds 750
     }
-    Fail "Minecraft did not open port 25599 within $Seconds seconds. Check the Minecraft Guest window."
+    Fail "Minecraft did not open port 25599 within $Seconds seconds. Check generated\minecraft-guest\run\logs\latest.log."
 }
 
 function Invoke-Python([string[]]$PythonArgs) {
@@ -77,19 +142,68 @@ function Invoke-Python([string[]]$PythonArgs) {
     }
 }
 
+function Ensure-WindowApi {
+    if ("CrossmodWindow" -as [type]) { return }
+    Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class CrossmodWindow {
+    [DllImport("user32.dll", SetLastError=true)]
+    public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+}
+"@
+}
+
+function Get-NewJavaWindows {
+    if (-not $script:GuestStartTime) { return @() }
+    return @(Get-Process java,javaw -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.MainWindowHandle -ne 0 -and
+            $_.StartTime -ge $script:GuestStartTime.AddSeconds(-5)
+        })
+}
+
+function Move-MinecraftOffscreen {
+    Ensure-WindowApi
+    $deadline = (Get-Date).AddSeconds(30)
+    while ((Get-Date) -lt $deadline) {
+        foreach ($p in (Get-NewJavaWindows)) {
+            if ($p.MainWindowHandle -ne 0) {
+                [CrossmodWindow]::ShowWindow($p.MainWindowHandle, 9) | Out-Null
+                [CrossmodWindow]::SetWindowPos($p.MainWindowHandle,[IntPtr]::Zero,-32000,0,1280,720,0x0010) | Out-Null
+                Write-Host "Minecraft render window moved offscreen (still rendering)." -ForegroundColor DarkGray
+                return
+            }
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    Write-Host "Minecraft window was not found for offscreen placement; passthrough can still run." -ForegroundColor Yellow
+}
+
+function Stop-GuestProcesses {
+    if (-not $script:GuestStartTime) { return }
+    Get-Process java,javaw -ErrorAction SilentlyContinue |
+        Where-Object { $_.StartTime -ge $script:GuestStartTime.AddSeconds(-5) } |
+        ForEach-Object {
+            try { Stop-Process -Id $_.Id -Force -ErrorAction Stop } catch {}
+        }
+}
+
 function Doctor([switch]$RequireRom, [switch]$RequireBuild) {
-    Write-Host "=== Windows doctor ===" -ForegroundColor Cyan
+    Write-Host "=== SM64 x real Minecraft doctor ===" -ForegroundColor Cyan
     Require-Command "git" "Install Git for Windows."
     Require-Command "python" "Install Python 3 and add it to PATH."
-    Require-Command "java" "Install JDK 25 and add it to PATH."
-
-    $major = Get-JavaMajor
-    if ($major -ne 25) { Fail "JDK 25 is required. Detected Java major version: $major" }
-    Write-Host "Java 25: OK"
+    Ensure-Java25
 
     $bash = Get-MsysBash
-    if (-not $bash) { Fail "MSYS2 was not found. Expected C:\msys64\usr\bin\bash.exe" }
-    Write-Host "MSYS2: OK ($bash)"
+    if (-not $bash) {
+        Fail "MSYS2 was not found. Install MSYS2 to C:\msys64 once; after that windows-all.bat handles the rest."
+    }
+    Write-Host "MSYS2: OK ($bash)" -ForegroundColor Green
 
     if ($RequireRom) {
         $romA = Join-Path $Root "rom\baserom.us.z64"
@@ -97,31 +211,29 @@ function Doctor([switch]$RequireRom, [switch]$RequireBuild) {
         if (-not (Test-Path $romA) -and -not (Test-Path $romB)) {
             Fail "Put your own clean USA baserom.us.z64 in rom\baserom.us.z64 or the repo root."
         }
-        Write-Host "SM64 ROM: OK"
+        Write-Host "SM64 ROM: OK" -ForegroundColor Green
     }
 
     if ($RequireBuild) {
         $buildDir = Join-Path $Root "vendor\sm64-port\build\us_pc"
         $exe = Get-ChildItem $buildDir -Filter *.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-        if (-not $exe) { Fail "SM64 is not built. Run .\build-sm64.bat first." }
-        Write-Host "SM64 host EXE: OK"
+        if (-not $exe) { Fail "SM64 is not built. Run windows-all.bat once." }
+        Write-Host "SM64 host EXE: OK" -ForegroundColor Green
     }
 }
 
 function Setup {
     Doctor
-    if (Test-Port25599) {
-        Fail "A Minecraft passthrough guest is already running on port 25599. Close Minecraft and SM64 before setup/build so the new code can be regenerated safely."
-    }
-    $bash = Get-MsysBash
+    if (Test-Port25599) { Fail "A passthrough Minecraft client is already running. Close it before setup/build." }
 
+    $bash = Get-MsysBash
     Write-Host ""
     Write-Host "Ensuring MSYS2 build packages..." -ForegroundColor Cyan
     & $bash -lc "pacman -S --needed --noconfirm make git python mingw-w64-x86_64-gcc mingw-w64-x86_64-SDL2 mingw-w64-x86_64-glew"
     if ($LASTEXITCODE -ne 0) { Fail "MSYS2 package setup failed." }
 
     Write-Host ""
-    Write-Host "Refreshing Universal Modder + clean sm64-port..." -ForegroundColor Cyan
+    Write-Host "Refreshing Universal Modder and real Minecraft guest..." -ForegroundColor Cyan
     Invoke-Python @("tools\bootstrap_um.py")
     Invoke-Python @("tools\sync_um_reference.py")
     Invoke-Python @("tools\patch_guest_for_sm64.py")
@@ -129,7 +241,7 @@ function Setup {
     Invoke-Python @("tools\patch_sm64_toolchain.py")
 
     Write-Host ""
-    Write-Host "Validating the Universal Modder Minecraft guest..." -ForegroundColor Cyan
+    Write-Host "Building the real Universal Modder Minecraft guest..." -ForegroundColor Cyan
     Push-Location (Join-Path $Root "generated\minecraft-guest")
     try {
         & .\gradlew.bat build --no-daemon
@@ -137,55 +249,78 @@ function Setup {
     } finally {
         Pop-Location
     }
-
-    Write-Host ""
     Write-Host "Setup complete." -ForegroundColor Green
 }
 
 function Build {
     Doctor -RequireRom
     Write-Host ""
-    Write-Host "Building a pristine generated SM64 host..." -ForegroundColor Cyan
+    Write-Host "Building SM64 host with Universal Modder passthrough..." -ForegroundColor Cyan
     Invoke-Python @("tools\build_sm64.py")
-    Write-Host "SM64 build complete." -ForegroundColor Green
+    Write-Host "SM64 host build complete." -ForegroundColor Green
 }
 
 function Start-Guest {
+    Ensure-Java25
     $gradle = Join-Path $Root "generated\minecraft-guest\gradlew.bat"
-    if (-not (Test-Path $gradle)) { Fail "Minecraft guest is missing. Run .\setup-windows.bat first." }
-
+    if (-not (Test-Path $gradle)) { Fail "Minecraft guest is missing. Run windows-all.bat once." }
     if (Test-Port25599) {
-        Write-Host "Minecraft guest is already running."
+        Write-Host "Minecraft passthrough is already running."
         return
     }
 
     $guestDir = Join-Path $Root "generated\minecraft-guest"
-    $cmd = 'cd /d "{0}" && gradlew.bat runClient' -f $guestDir
-    Start-Process -FilePath "cmd.exe" -ArgumentList "/k",$cmd -WorkingDirectory $guestDir
+    $script:GuestStartTime = Get-Date
+    $cmd = 'set "JAVA_HOME={0}" && set "PATH={0}\bin;%PATH%" && cd /d "{1}" && gradlew.bat runClient --no-daemon' -f $env:JAVA_HOME,$guestDir
+    Start-Process -FilePath "cmd.exe" -ArgumentList "/d","/c",$cmd -WorkingDirectory $guestDir -WindowStyle Hidden | Out-Null
 }
 
 function Start-Sm64 {
     Doctor -RequireBuild
     $buildDir = Join-Path $Root "vendor\sm64-port\build\us_pc"
     $exe = Get-ChildItem $buildDir -Filter *.exe | Select-Object -First 1
-    Write-Host "Starting $($exe.FullName)"
-    Start-Process -FilePath $exe.FullName -WorkingDirectory $exe.DirectoryName
+    Write-Host "Starting SM64 host: $($exe.Name)" -ForegroundColor Cyan
+    return Start-Process -FilePath $exe.FullName -WorkingDirectory $exe.DirectoryName -PassThru
+}
+
+function Focus-Sm64([System.Diagnostics.Process]$Process) {
+    Ensure-WindowApi
+    $deadline = (Get-Date).AddSeconds(20)
+    while ((Get-Date) -lt $deadline) {
+        $Process.Refresh()
+        if ($Process.MainWindowHandle -ne 0) {
+            [CrossmodWindow]::SetForegroundWindow($Process.MainWindowHandle) | Out-Null
+            return
+        }
+        Start-Sleep -Milliseconds 250
+    }
 }
 
 function Start-Crossmod {
     Start-Guest
     Wait-Guest
-    Start-Sm64
+    Move-MinecraftOffscreen
+
+    $sm64 = Start-Sm64
+    Focus-Sm64 $sm64
+
     Write-Host ""
-    Write-Host "Crossmod started: Minecraft guest + SM64 host." -ForegroundColor Green
+    Write-Host "READY: use only the SM64 window. Minecraft runs automatically behind it." -ForegroundColor Green
+    Write-Host "WASD / mouse / Space / Ctrl / Shift / LMB / RMB / E / Q / F / 1-9 / F5" -ForegroundColor Green
+
+    try {
+        Wait-Process -Id $sm64.Id
+    } finally {
+        Stop-GuestProcesses
+    }
 }
 
 switch ($Action) {
     "doctor" { Doctor -RequireRom }
     "setup"  { Setup }
     "build"  { Build }
-    "guest"  { Start-Guest }
-    "sm64"   { Start-Sm64 }
+    "guest"  { Start-Guest; Wait-Guest; Move-MinecraftOffscreen }
+    "sm64"   { $p = Start-Sm64; Focus-Sm64 $p }
     "start"  { Start-Crossmod }
     "all"    { Setup; Build; Start-Crossmod }
 }

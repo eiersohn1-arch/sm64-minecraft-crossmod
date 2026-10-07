@@ -119,6 +119,18 @@ bool native_sm64_action_owns_player() {
 void poll_guest_messages() {
     std::string message;
     while (g_ws.poll(message)) {
+        if (message.find("\"t\":\"screen\"") != std::string::npos) {
+            const bool open =
+                message.find("\"open\":true") != std::string::npos;
+            g_inventoryScreen = open;
+            if (!open) {
+                g_uiLeft = false;
+                g_uiRight = false;
+                g_uiMiddle = false;
+            }
+            continue;
+        }
+
         McPose pose;
         const int matched = std::sscanf(
             message.c_str(),

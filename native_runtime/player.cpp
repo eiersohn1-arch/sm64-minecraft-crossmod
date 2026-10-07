@@ -51,7 +51,9 @@ void resolve_sm64_walls(float &x, float &y, float &z) {
     z = walls.z;
 }
 
-void move_axis_with_voxels(float &coord, float candidate, bool xAxis) {
+void move_axis_with_voxels(
+    float &coord, float candidate, bool xAxis, bool &steppedThisFrame
+) {
     const float old = coord;
     coord = candidate;
 
@@ -63,9 +65,11 @@ void move_axis_with_voxels(float &coord, float candidate, bool xAxis) {
     }
 
     if (gNm.player.onGround
+        && !steppedThisFrame
         && !nm_world_player_intersects(
             testX, gNm.player.y + STEP_HEIGHT, testZ)) {
         gNm.player.y += STEP_HEIGHT;
+        steppedThisFrame = true;
         return;
     }
 
@@ -154,10 +158,13 @@ void nm_simulate_player() {
 
     float nextX = gNm.player.x;
     float nextZ = gNm.player.z;
+    bool steppedThisFrame = false;
 
-    move_axis_with_voxels(nextX, gNm.player.x + gNm.player.vx, true);
+    move_axis_with_voxels(
+        nextX, gNm.player.x + gNm.player.vx, true, steppedThisFrame);
     gNm.player.x = nextX;
-    move_axis_with_voxels(nextZ, gNm.player.z + gNm.player.vz, false);
+    move_axis_with_voxels(
+        nextZ, gNm.player.z + gNm.player.vz, false, steppedThisFrame);
 
     nextX = gNm.player.x;
     float nextY = gNm.player.y + gNm.player.vy;

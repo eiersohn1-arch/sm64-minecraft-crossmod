@@ -18,6 +18,7 @@ struct NmPlayerState {
     bool initialized = false;
     bool onGround = false;
     bool firstPerson = false;
+    bool inventoryOpen = false;
     int level = -1;
     int area = -1;
     int selectedSlot = 0;

@@ -997,13 +997,27 @@ static void crossmod_capture_host_input(void) {
 
     s_host_keys = keys;
 
-    int attack_down = crossmod_key_down(VK_LBUTTON);
-    int use_down = crossmod_key_down(VK_RBUTTON);
+    /*
+     * Mouse clicks can be much shorter than one SM64 frame. Looking only at
+     * the high bit (currently held) can therefore miss a complete click that
+     * happened between two polls. Read GetAsyncKeyState once per button and
+     * also honor its low "pressed since previous query" bit.
+     *
+     * The OR keeps a normal rising edge from being counted twice when both
+     * bits are present for the same click.
+     */
+    SHORT attack_state = GetAsyncKeyState(VK_LBUTTON);
+    SHORT use_state = GetAsyncKeyState(VK_RBUTTON);
 
-    if (attack_down && !s_prev_attack_down) {
+    int attack_down = (attack_state & 0x8000) != 0;
+    int use_down = (use_state & 0x8000) != 0;
+    int attack_pressed = (attack_state & 0x0001) != 0;
+    int use_pressed = (use_state & 0x0001) != 0;
+
+    if (attack_pressed || (attack_down && !s_prev_attack_down)) {
         s_attack_serial++;
     }
-    if (use_down && !s_prev_use_down) {
+    if (use_pressed || (use_down && !s_prev_use_down)) {
         s_use_serial++;
     }
 

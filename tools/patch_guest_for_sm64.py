@@ -43,6 +43,14 @@ for source_name, target in (
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(source.read_bytes())
 
+# GTA's passthrough makes the player noPhysics because GTA owns locomotion.
+# SM64 is the opposite in normal gameplay: real Minecraft collision must move
+# Steve on the mirrored Mario geometry, so remove that ghost-player mixin.
+common_mixins = RES / "passthrough.mixins.json"
+common_text = common_mixins.read_text(encoding="utf-8")
+common_text = common_text.replace('"MobMixin", "PlayerMixin", "PortalMixin"', '"MobMixin", "PortalMixin"')
+common_mixins.write_text(common_text, encoding="utf-8")
+
 # Register the technical SM64 surface block during the real Fabric mod's
 # normal common initialization.
 passthrough_main = MAIN / "Passthrough.java"

@@ -11,6 +11,34 @@
 
 NmRuntimeState gNm;
 
+static void nm_update_cursor_clip() {
+    const bool lock = gNm.authority
+        && gNm.input.focused
+        && !gNm.player.inventoryOpen;
+
+    if (!lock) {
+        ClipCursor(nullptr);
+        return;
+    }
+
+    HWND hwnd = GetForegroundWindow();
+    if (!hwnd) return;
+
+    RECT client{};
+    if (!GetClientRect(hwnd, &client)) return;
+
+    POINT topLeft{client.left, client.top};
+    POINT bottomRight{client.right, client.bottom};
+    ClientToScreen(hwnd, &topLeft);
+    ClientToScreen(hwnd, &bottomRight);
+
+    RECT screenRect{
+        topLeft.x, topLeft.y,
+        bottomRight.x, bottomRight.y
+    };
+    ClipCursor(&screenRect);
+}
+
 extern "C" void native_minecraft_key_event(int vk, int down) {
     if (vk < 0 || vk >= (int)gNm.input.down.size()) return;
 
@@ -39,6 +67,7 @@ extern "C" void native_minecraft_raw_mouse(int dx, int dy) {
 extern "C" void native_minecraft_focus_changed(int focused) {
     gNm.input.focused = focused != 0;
     if (!gNm.input.focused) {
+        ClipCursor(nullptr);
         gNm.input.down.fill(0);
         gNm.input.pressed.fill(0);
         gNm.input.rawMouseX = 0;
@@ -61,7 +90,10 @@ bool nm_key_pressed(int vk) {
 }
 
 void nm_input_begin_frame() {
-    if (!gNm.input.focused) return;
+    if (!gNm.input.focused) {
+        nm_update_cursor_clip();
+        return;
+    }
 
     if (nm_key_pressed('E')) {
         gNm.player.inventoryOpen = !gNm.player.inventoryOpen;
@@ -93,6 +125,14 @@ void nm_input_begin_frame() {
             gNm.player.selectedSlot = i;
         }
     }
+
+    nm_update_cursor_clip();
+}
+
+extern "C" int native_minecraft_pointer_locked(void) {
+    return gNm.authority
+        && gNm.input.focused
+        && !gNm.player.inventoryOpen;
 }
 
 void nm_input_end_frame() {

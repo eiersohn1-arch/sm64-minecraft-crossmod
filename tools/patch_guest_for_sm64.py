@@ -187,6 +187,44 @@ replace_once(
 )
 
 
+# The GTA demo resets the player's inventory on every join. For a playable
+# persistent SM64 world, seed a useful building/crafting kit only once per
+# player save, then leave the real Minecraft inventory completely alone.
+starter_replacements = {
+    '"clear @a",': '"execute as @a[tag=!sm64_starter] run give @s minecraft:bread 32",',
+    '"item replace entity @a hotbar.0 with minecraft:ender_pearl 16",':
+        '"execute as @a[tag=!sm64_starter] run item replace entity @s hotbar.0 with minecraft:oak_planks 64",',
+    '"item replace entity @a hotbar.1 with minecraft:diamond_sword",':
+        '"execute as @a[tag=!sm64_starter] run item replace entity @s hotbar.1 with minecraft:cobblestone 64",',
+    '"item replace entity @a hotbar.2 with minecraft:crossbow[enchantments={multishot:1,quick_charge:3}]",':
+        '"execute as @a[tag=!sm64_starter] run item replace entity @s hotbar.2 with minecraft:grass_block 64",',
+    '"item replace entity @a hotbar.3 with minecraft:bow[enchantments={power:5,infinity:1}]",':
+        '"execute as @a[tag=!sm64_starter] run item replace entity @s hotbar.3 with minecraft:glass 64",',
+    '"item replace entity @a hotbar.4 with minecraft:tnt 64",':
+        '"execute as @a[tag=!sm64_starter] run item replace entity @s hotbar.4 with minecraft:crafting_table 16",',
+    '"item replace entity @a hotbar.5 with minecraft:flint_and_steel",':
+        '"execute as @a[tag=!sm64_starter] run item replace entity @s hotbar.5 with minecraft:chest 16",',
+    '"item replace entity @a hotbar.6 with minecraft:creeper_spawn_egg 64",':
+        '"execute as @a[tag=!sm64_starter] run item replace entity @s hotbar.6 with minecraft:torch 64",',
+    '"item replace entity @a hotbar.7 with minecraft:grass_block 64",':
+        '"execute as @a[tag=!sm64_starter] run item replace entity @s hotbar.7 with minecraft:iron_pickaxe",',
+    '"item replace entity @a hotbar.8 with minecraft:firework_rocket 64",':
+        '"execute as @a[tag=!sm64_starter] run item replace entity @s hotbar.8 with minecraft:iron_sword",',
+    '"give @a minecraft:arrow 64",':
+        '"execute as @a[tag=!sm64_starter] run give @s minecraft:iron_axe",',
+    '"item replace entity @a weapon.offhand with minecraft:firework_rocket[fireworks={flight_duration:3,explosions:[{shape:\\"large_ball\\",colors:[I;16733525,16755200],has_trail:true}]}] 64"':
+        '"tag @a[tag=!sm64_starter] add sm64_starter"'
+}
+guest_text = passthrough_client.read_text(encoding="utf-8")
+for old, new in starter_replacements.items():
+    if new in guest_text:
+        continue
+    if old not in guest_text:
+        raise RuntimeError(f"Universal Modder starter marker changed: {old!r}")
+    guest_text = guest_text.replace(old, new, 1)
+passthrough_client.write_text(guest_text, encoding="utf-8")
+
+
 
 # 5) Keep the real Minecraft world/session in survival on every join.  The UM
 # GTA demo starts from creative-flight assumptions; the SM64 mashup must not.

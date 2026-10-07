@@ -1,8 +1,7 @@
 {
-  "parent": "minecraft:block/cube_all",
   "ambientocclusion": false,
   "textures": {
-    "all": "passthrough:block/sm64_surface_transparent",
     "particle": "minecraft:block/stone"
-  }
+  },
+  "elements": []
 }

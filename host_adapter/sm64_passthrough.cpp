@@ -27,6 +27,7 @@ extern "C" {
 #include "sm64.h"
 #include "engine/math_util.h"
 #include "engine/surface_collision.h"
+#include "engine/surface_load.h"
 #include "game/area.h"
 #include "game/camera.h"
 #include "game/level_update.h"

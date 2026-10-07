@@ -1,76 +1,99 @@
-# SM64 × Minecraft — Universal Modder clean rebuild
+# SM64 × real Minecraft — Universal Modder passthrough
 
-This branch is a clean rebuild around **Universal Modder `mashup-mods` Pattern 2 (passthrough)**. None of the old crossmod bridge/HUD/terrain code is reused.
+This branch uses the **real Universal Modder Minecraft passthrough**, not a handwritten Minecraft replacement.
 
-## Current milestone: first real SM64 host
-
-The path is now:
+Source of truth:
 
 ```
-real SM64 PC port (Direct3D 11)
-       |
-       |  Universal Modder localhost WebSocket
-       v
-real Minecraft 26.3 + Fabric guest
-       |
-       |  Local\MCPassthroughFrame
-       v
-SM64 D3D11 backbuffer
+rehan-remade/universal-modder
+└── examples/minecraft-gta5-passthrough
+    ├── mc/        real Fabric Minecraft guest
+    └── gta/src/   transport/reference host side
 ```
 
-The Minecraft guest is copied **verbatim** from Universal Modder's
-`examples/minecraft-gta5-passthrough/mc`.
+The project syncs that real Minecraft guest, applies only the SM64-specific control delta, then runs it behind the SM64 PC port.
 
-The SM64 adapter:
-- uses Universal Modder's `ws.cpp/ws.h` verbatim;
-- sends the real SM64 camera and Mario position with the same `cam` protocol;
-- samples native SM64 `find_floor()` collision and sends `ground` columns;
-- forwards left/right click, E, Q, F and hotbar 1-9 using the existing UM input messages;
-- reads the UM `MCPT` shared-memory ring;
-- composites Minecraft world colour plus the separate hand/HUD/GUI layer into SM64's D3D11 frame.
+## What this means
 
-This is deliberately the **small vertical slice Universal Modder recommends**. Minecraft follows the SM64 host in this milestone. Depth occlusion, Minecraft-authoritative WASD/mouse movement, walls/ceilings and block collision back into SM64 come after this slice is proven on the real PC.
+Minecraft itself owns:
 
-## Requirements
+- WASD movement
+- gravity
+- jump
+- sprint
+- sneak
+- mouse look
+- hotbar
+- inventory
+- item use
+- block breaking
+- block placement
+- health/hunger
+- hand/HUD/screens
+- actual Minecraft player rendering
+
+SM64 owns:
+
+- level geometry
+- stars
+- doors
+- warps
+- missions
+- enemies
+- cutscenes
+- progression
+
+Mario is kept as an invisible SM64 progression proxy while Steve is the visible/player-controlled character.
+
+## Universal Modder pieces used directly
+
+- `HostLink`
+- `FrameExporter`
+- `SharedMemory`
+- `PlayerSync`
+- `WorldBridge`
+- Minecraft client mixins
+- MCPT shared-memory world/depth/HUD frame format
+- `ws.cpp/ws.h` transport
+
+The SM64-specific host code is tracked in:
+
+```
+host_adapter/
+├── sm64_passthrough.h
+├── sm64_passthrough.cpp
+└── um_mcpt_overlay.inc
+```
+
+## Current integration
+
+- real Win32 raw mouse input from the SM64 window
+- real Minecraft key mappings
+- Mario input is neutralized while Minecraft owns movement
+- SM64 floor, ceiling and wall collision is streamed into Minecraft as invisible barriers
+- Minecraft reports Steve's real pose back to SM64
+- Mario follows Steve invisibly for stars/triggers/progression
+- normal camera follows Minecraft yaw/pitch
+- SM64 cutscenes temporarily own the camera/state while Minecraft follows them
+- Minecraft world colour is drawn inside SM64
+- Minecraft depth is converted to SM64 depth and tested against the real SM64 depth buffer
+- Minecraft hand/HUD/inventory is drawn as a separate overlay
+- Minecraft world/options are preserved across rebuilds
+- SM64 save/config are preserved across rebuilds
+
+## One-click Windows use
+
+Requirements you still need once:
 
 - Windows 10/11
-- JDK 25
-- Python 3
 - Git
+- Python 3
 - MSYS2 installed at `C:\msys64`
-- MinGW64 GCC toolchain
 - your own clean USA `baserom.us.z64`
 
-Put the ROM in either:
+JDK 25 is handled automatically. If Java 25 is missing, the launcher downloads a local Temurin JDK into `.tools\jdk25`.
 
-```
-rom\baserom.us.z64
-```
-
-or the repository root as `baserom.us.z64`.
-
-## Windows: one-click flow
-
-After pulling this branch, the recommended Windows path is now simply:
-
-```bat
-windows-all.bat
-```
-
-That one launcher runs the unified `windows-crossmod.ps1` controller. It:
-
-1. checks Git, Python, **JDK 25**, MSYS2 and the ROM;
-2. installs/validates the required MSYS2 MinGW packages;
-3. refreshes Universal Modder and a clean `sm64-port`;
-4. recreates the Minecraft guest directly from Universal Modder;
-5. removes all stale/generated legacy crossmod files;
-6. patches old `sm64-port` build tools for current MinGW;
-7. rebuilds the generated SM64 host from a pristine checkout;
-8. launches Minecraft;
-9. waits for the Universal Modder WebSocket on `127.0.0.1:25599`;
-10. only then starts the SM64 host.
-
-Your own clean USA ROM must be at either:
+Put your ROM at either:
 
 ```
 rom\baserom.us.z64
@@ -82,45 +105,52 @@ or:
 baserom.us.z64
 ```
 
-Useful individual launchers still exist, but they all route through the same PowerShell controller:
+Then run:
 
 ```bat
-windows-doctor.bat
-setup-windows.bat
-build-sm64.bat
-start-guest.bat
-start-sm64.bat
+windows-all.bat
+```
+
+That command:
+
+1. refreshes Universal Modder;
+2. syncs the real Minecraft passthrough guest;
+3. applies the SM64 control delta;
+4. builds the Minecraft guest;
+5. builds the SM64 host;
+6. starts Minecraft automatically;
+7. waits for port 25599;
+8. moves the Minecraft window offscreen without minimizing it;
+9. starts and focuses SM64;
+10. closes the guest automatically when SM64 exits.
+
+After the first successful build you can use:
+
+```bat
 start-crossmod.bat
 ```
 
-For normal use, prefer `windows-all.bat` for a fresh build or `start-crossmod.bat` after a successful build.
+## Controls in the SM64 window
 
-## Minecraft controls in the SM64 window
+- WASD — Minecraft movement
+- mouse — Minecraft look
+- Space — jump
+- Left Ctrl — sprint
+- Left Shift — sneak
+- Left click — attack / break
+- Right click — use / place
+- mouse wheel / 1-9 — hotbar
+- E — inventory
+- Q — drop
+- F — swap off-hand
+- F5 — first/third person
 
-When the crossmod is connected, the **SM64 window is the active game window**, but these inputs are forwarded into the real Minecraft player:
+## Branch
 
-- `W A S D`: vanilla Minecraft movement
-- `Space`: jump
-- `Left Shift`: sneak
-- `Left Ctrl`: sprint
-- mouse: Minecraft look
-- left click: attack / break
-- right click: use / place
-- `1-9`: hotbar
-- `E`: inventory
-- `Q`: drop
-- `F`: swap off-hand
-- `F5`: first/third person
+Use:
 
-Minecraft now owns normal locomotion and gravity.  SM64's Mario is kept invisible and is snapped to Steve's reported Minecraft pose so SM64 stars, triggers, doors and progression can continue to use Mario as an interaction proxy.
+```
+universal-modder-real-minecraft
+```
 
-## Next order
-
-1. prove SM64 + Minecraft world/HUD are visible together;
-2. add SM64-vs-Minecraft depth occlusion;
-3. add raw Minecraft mouse/WASD authority;
-4. add walls, ceilings and moving SM64 collision;
-5. send placed Minecraft block collision/events back into SM64;
-6. add latency reprojection.
-
-That order follows Universal Modder's rule: **cube/pose → rendering → collision → real gameplay**.
+The older `native-minecraft-fusion` branch is the handwritten reimplementation path and is **not** the branch for this approach.

@@ -67,6 +67,17 @@ host_adapter/
 
 ## Current integration
 
+This branch is no longer a flat overlay proof-of-concept. The two runtimes now share gameplay state in both directions:
+
+- every SM64 save/level/area is mapped to its own hidden Minecraft coordinate zone so builds never leak into another course
+- nearby SM64 floor/ceiling/wall geometry is streamed into Minecraft as a dedicated technical host-surface block
+- that host-surface block is targetable and breakable in Survival instead of being an unbreakable vanilla barrier
+- mined SM64 surface cells are persisted per save/level/area and are not recreated by later terrain packets
+- vanilla Minecraft block placement therefore works directly against streamed Mario-world surfaces
+- Minecraft block changes are sent back to SM64
+- those blocks are rebuilt as native SM64 dynamic collision boxes every frame, so the host simulation can collide with the player's builds
+- Minecraft jump/attack/use/sneak also feed semantic A/B/Z button presses to the invisible Mario proxy, preserving doors, switches, breakables and other original SM64 interaction code while Minecraft still owns locomotion
+
 - real Win32 raw mouse input from the SM64 window
 - real Minecraft key mappings
 - Mario input is neutralized while Minecraft owns movement
@@ -80,6 +91,10 @@ host_adapter/
 - Minecraft hand/HUD/inventory is drawn as a separate overlay
 - Minecraft world/options are preserved across rebuilds
 - SM64 save/config are preserved across rebuilds
+
+## Current terrain-mining limitation
+
+Physical terrain mining now works on the Minecraft side: once a streamed SM64 surface cell is mined, Minecraft no longer collides with it and it stays mined for that level. The original SM64 polygon renderer is still drawing its native mesh, though, so a mined cell does not yet cut a visible voxel-shaped hole out of the Mario texture mesh. Making that visual destruction exact requires a second host-render masking/voxelisation pass and is the next heavy step; it is intentionally not faked here.
 
 ## One-click Windows use
 

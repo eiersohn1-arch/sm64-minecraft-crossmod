@@ -15,6 +15,7 @@ void um_passthrough_apply_mario_proxy(struct MarioState *m);
 void um_passthrough_override_camera(void);
 void um_passthrough_before_frame(void);
 void um_passthrough_frame(void);
+void um_passthrough_load_block_surfaces(void);
 
 void um_passthrough_key_event(int vk, int down);
 void um_passthrough_mouse_button(int button, int down);

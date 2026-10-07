@@ -63,11 +63,20 @@ bool nm_key_pressed(int vk) {
 void nm_input_begin_frame() {
     if (!gNm.input.focused) return;
 
+    if (nm_key_pressed('E')) {
+        gNm.player.inventoryOpen = !gNm.player.inventoryOpen;
+    }
+    if (nm_key_pressed(VK_ESCAPE)) {
+        gNm.player.inventoryOpen = false;
+    }
+
     // Raw WM_INPUT deltas are accumulated independently of SM64's 30 Hz game loop.
-    // This prevents the cursor-warp / missed-delta behaviour from the prototype.
+    // Inventory mode intentionally consumes them without rotating the camera.
     constexpr float sensitivity = 0.115f;
-    gNm.player.yaw += (float)gNm.input.rawMouseX * sensitivity;
-    gNm.player.pitch += (float)gNm.input.rawMouseY * sensitivity;
+    if (!gNm.player.inventoryOpen) {
+        gNm.player.yaw += (float)gNm.input.rawMouseX * sensitivity;
+        gNm.player.pitch += (float)gNm.input.rawMouseY * sensitivity;
+    }
     gNm.input.rawMouseX = 0;
     gNm.input.rawMouseY = 0;
 
@@ -75,7 +84,7 @@ void nm_input_begin_frame() {
     while (gNm.player.yaw >= 180.0f) gNm.player.yaw -= 360.0f;
     while (gNm.player.yaw < -180.0f) gNm.player.yaw += 360.0f;
 
-    if (nm_key_pressed(VK_F5)) {
+    if (!gNm.player.inventoryOpen && nm_key_pressed(VK_F5)) {
         gNm.player.firstPerson = !gNm.player.firstPerson;
     }
 

@@ -7,6 +7,7 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Tools = Join-Path $Root ".tools"
 $LocalJdkRoot = Join-Path $Tools "jdk25"
+$BuildStamp = Join-Path $Root ".crossmod-build-head"
 $script:GuestStartTime = $null
 Set-Location $Root
 
@@ -252,11 +253,44 @@ function Setup {
     Write-Host "Setup complete." -ForegroundColor Green
 }
 
+function Get-CurrentRepoHead {
+    try {
+        $head = (& git rev-parse HEAD 2>$null | Select-Object -First 1)
+        if ($LASTEXITCODE -eq 0 -and $head) { return $head.Trim() }
+    } catch {}
+    return $null
+}
+
+function Write-BuildStamp {
+    $head = Get-CurrentRepoHead
+    if ($head) {
+        Set-Content -Path $BuildStamp -Value $head -Encoding ASCII
+    }
+}
+
+function Test-BuildFresh {
+    $head = Get-CurrentRepoHead
+    if (-not $head -or -not (Test-Path $BuildStamp)) { return $false }
+    $built = (Get-Content $BuildStamp -ErrorAction SilentlyContinue | Select-Object -First 1)
+    return $built -and $built.Trim() -eq $head
+}
+
+function Ensure-FreshBuild {
+    if (Test-BuildFresh) { return }
+
+    Write-Host ""
+    Write-Host "Crossmod sources changed since the last build." -ForegroundColor Yellow
+    Write-Host "Rebuilding the real Minecraft + SM64 integration so an old build cannot start..." -ForegroundColor Cyan
+    Setup
+    Build
+}
+
 function Build {
     Doctor -RequireRom
     Write-Host ""
     Write-Host "Building SM64 host with Universal Modder passthrough..." -ForegroundColor Cyan
     Invoke-Python @("tools\build_sm64.py")
+    Write-BuildStamp
     Write-Host "SM64 host build complete." -ForegroundColor Green
 }
 
@@ -297,6 +331,7 @@ function Focus-Sm64([System.Diagnostics.Process]$Process) {
 }
 
 function Start-Crossmod {
+    Ensure-FreshBuild
     Start-Guest
     Wait-Guest
     Move-MinecraftOffscreen

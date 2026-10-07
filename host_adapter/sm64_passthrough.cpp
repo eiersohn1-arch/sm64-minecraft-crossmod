@@ -1136,6 +1136,42 @@ void um_passthrough_frame(void) {
 }
 
 
+int um_passthrough_get_native_avatar(UmNativeAvatarPose *out_pose) {
+    if (out_pose == nullptr) return 0;
+    std::memset(out_pose, 0, sizeof(*out_pose));
+
+    if (!g_ws.connected() || !g_mc.valid) {
+        return 0;
+    }
+
+    out_pose->valid = 1;
+    out_pose->x = static_cast<float>((g_mc.x - g_worldOffsetX) * SCALE);
+    out_pose->y = static_cast<float>((g_mc.y - MC_Y0) * SCALE);
+    out_pose->z = static_cast<float>(-(g_mc.z - g_worldOffsetZ) * SCALE);
+    out_pose->yaw_degrees = 180.0f - g_mc.yaw;
+    out_pose->first_person = g_firstPerson ? 1 : 0;
+    return 1;
+}
+
+int um_passthrough_get_native_camera(UmNativeCameraPose *out_pose) {
+    if (out_pose == nullptr) return 0;
+    std::memset(out_pose, 0, sizeof(*out_pose));
+
+    if (!g_ws.connected() || gCamera == nullptr) {
+        return 0;
+    }
+
+    out_pose->valid = 1;
+    out_pose->eye[0] = gLakituState.curPos[0];
+    out_pose->eye[1] = gLakituState.curPos[1];
+    out_pose->eye[2] = gLakituState.curPos[2];
+    out_pose->focus[0] = gLakituState.curFocus[0];
+    out_pose->focus[1] = gLakituState.curFocus[1];
+    out_pose->focus[2] = gLakituState.curFocus[2];
+    out_pose->fov_degrees = sFOVState.fov;
+    return 1;
+}
+
 void um_passthrough_load_block_surfaces(void) {
     if (!g_ws.connected()) return;
     load_minecraft_block_collision();

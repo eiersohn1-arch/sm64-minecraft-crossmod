@@ -1,57 +1,57 @@
-name: Universal Modder clean rebuild
+name: Native Minecraft fusion V2
 
 on:
   push:
-    branches: [universal-modder-clean-rebuild]
+    branches: [native-minecraft-fusion]
   pull_request:
 
 jobs:
-  architecture:
+  native-architecture:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Java 25
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "25"
+      - name: Validate installer and source layout
+        run: |
+          python -m py_compile             tools/bootstrap_um.py             tools/generate_native_minecraft.py             tools/build_sm64.py             tools/patch_sm64_toolchain.py
+          test -f native_runtime/native_minecraft.h
+          test -f native_runtime/native_minecraft_internal.h
+          test -f native_runtime/input.cpp
+          test -f native_runtime/player.cpp
+          test -f native_runtime/world.cpp
+          test -f native_runtime/bridge.cpp
+          test -f native_runtime/native_minecraft_render.inc
 
-      - name: Validate clean bootstrap tooling
-        run: python -m py_compile tools/bootstrap_um.py tools/sync_um_reference.py tools/patch_guest_for_sm64.py tools/generate_sm64_host.py tools/build_sm64.py tools/patch_sm64_toolchain.py tools/verify_clean_rebuild.py
-
-      - name: Reject legacy crossmod implementation
+      - name: Reject old two-process runtime
         shell: bash
         run: |
-          test ! -e sm64-host/crossmod_bridge.c
-          test ! -e src/client/java/dev/eiersohn/sm64cross/client/render/SmoothSurvivalHud.java
-          test ! -e src/client/java/dev/eiersohn/sm64cross/client/bridge/Sm64TerrainProxy.java
+          test ! -e tools/generate_sm64_host.py
+          test ! -e tools/sync_um_reference.py
+          test ! -e tools/patch_guest_for_sm64.py
+          test ! -e start-guest.bat
+          test ! -e start-fake-host.bat
+          test ! -e gradlew
+          test ! -e gradlew.bat
 
-      - name: Bootstrap Universal Modder source of truth
+      - name: Bootstrap Universal Modder Pattern 4 reference
         run: python tools/bootstrap_um.py
 
-      - name: Sync Minecraft guest from Universal Modder
-        run: python tools/sync_um_reference.py
+      - name: Install native fusion
+        run: python tools/generate_native_minecraft.py
 
-      - name: Verify guest starts from the Universal Modder reference
+      - name: Run Native Fusion V2 regression contract
+        run: python tools/test_native_v2.py
+
+      - name: Verify real sm64-port build graph contains V2 modules
         shell: bash
-        run: diff -qr vendor/universal-modder/examples/minecraft-gta5-passthrough/mc generated/minecraft-guest
+        run: |
+          grep -q "src/pc/native_minecraft" vendor/sm64-port/Makefile
+          grep -q "native_minecraft_pre_mario_action" vendor/sm64-port/src/game/mario.c
+          grep -q "native_minecraft_override_camera" vendor/sm64-port/src/game/camera.c
+          grep -q "native_minecraft_render.inc" vendor/sm64-port/src/pc/gfx/gfx_direct3d11.cpp
+          grep -q "WM_INPUT" vendor/sm64-port/src/pc/gfx/gfx_dxgi.cpp
 
-      - name: Apply tiny SM64 guest visibility delta
-        run: python tools/patch_guest_for_sm64.py
-
-      - name: Build Universal Modder Minecraft guest with SM64 delta
-        working-directory: generated/minecraft-guest
-        run: ./gradlew build --no-daemon
-
-      - name: Generate clean SM64 host adapter
-        run: python tools/generate_sm64_host.py
-
-      - name: Verify clean Universal Modder architecture
-        run: python tools/verify_clean_rebuild.py
-
-
-  windows-sm64-syntax:
+  windows-native-buildgraph:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -78,24 +78,50 @@ jobs:
           install: >-
             git
             python
+            make
             mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-glew
 
-      - name: Generate clean Universal Modder SM64 host
+      - name: Generate Native Minecraft V2
         shell: msys2 {0}
         run: |
           python tools/bootstrap_um.py
-          python tools/generate_sm64_host.py
+          python tools/generate_native_minecraft.py
           python tools/patch_sm64_toolchain.py
 
-      - name: Build patched bundled armips
-        shell: msys2 {0}
-        run: |
-          make -C vendor/sm64-port/tools armips
-
-      - name: Syntax-check clean host and D3D11 compositor
+      - name: Syntax-check every native and host hook
         shell: msys2 {0}
         run: |
           cd vendor/sm64-port
-          g++ -std=gnu++17 -fsyntax-only             -DTARGET_PC=1 -DTARGET_WINDOWS=1 -DVERSION_US=1             -DAVOID_UB=1 -DNON_MATCHING=1 -DNO_SEGMENTED_MEMORY=1             -DUSE_SYSTEM_MALLOC=1 -D_LANGUAGE_C=1             -I. -Iinclude -Isrc -Isrc/pc -Isrc/pc/gfx             src/pc/sm64_passthrough.cpp src/pc/ws.cpp
-          g++ -std=gnu++17 -fsyntax-only             -DENABLE_DX11=1 -DTARGET_WINDOWS=1 -DNO_SEGMENTED_MEMORY=1             -DUSE_SYSTEM_MALLOC=1 -DWIDESCREEN=1 -D_LANGUAGE_C=1             -DVERSION_US=1 -I. -Iinclude -Isrc -Isrc/pc -Isrc/pc/gfx             src/pc/gfx/gfx_direct3d11.cpp
+          COMMON="-DTARGET_PC=1 -DTARGET_WINDOWS=1 -DVERSION_US=1 -DAVOID_UB=1 -DNON_MATCHING=1 -DNO_SEGMENTED_MEMORY=1 -DUSE_SYSTEM_MALLOC=1 -D_LANGUAGE_C=1 -I. -Iinclude -Isrc -Isrc/pc -Isrc/pc/gfx"
+
+          g++ -std=gnu++17 -fsyntax-only $COMMON             src/pc/native_minecraft/input.cpp             src/pc/native_minecraft/player.cpp             src/pc/native_minecraft/world.cpp             src/pc/native_minecraft/bridge.cpp
+
+          g++ -std=gnu++17 -fsyntax-only $COMMON -DENABLE_DX11=1             src/pc/gfx/gfx_dxgi.cpp             src/pc/gfx/gfx_direct3d11.cpp
+
           gcc -std=gnu11 -fsyntax-only             -DTARGET_PC=1 -DTARGET_WINDOWS=1 -DVERSION_US=1             -DAVOID_UB=1 -DNON_MATCHING=1             -I. -Iinclude -Isrc -Isrc/pc             src/game/mario.c src/game/camera.c src/game/hud.c
+
+      - name: Prove build graph sees native modules
+        shell: msys2 {0}
+        run: |
+          cd vendor/sm64-port
+          grep -q "src/pc/native_minecraft" Makefile
+          grep -q "src/pc/native_minecraft" Makefile
+
+      - name: Compile real native object files without retail ROM
+        shell: msys2 {0}
+        run: |
+          cd vendor/sm64-port
+          mkdir -p build/native-ci
+          COMMON="-DTARGET_PC=1 -DTARGET_WINDOWS=1 -DVERSION_US=1 -DAVOID_UB=1 -DNON_MATCHING=1 -DNO_SEGMENTED_MEMORY=1 -DUSE_SYSTEM_MALLOC=1 -D_LANGUAGE_C=1 -I. -Iinclude -Isrc -Isrc/pc -Isrc/pc/gfx"
+
+          g++ -std=gnu++17 -c $COMMON src/pc/native_minecraft/input.cpp -o build/native-ci/input.o
+          g++ -std=gnu++17 -c $COMMON src/pc/native_minecraft/player.cpp -o build/native-ci/player.o
+          g++ -std=gnu++17 -c $COMMON src/pc/native_minecraft/world.cpp -o build/native-ci/world.o
+          g++ -std=gnu++17 -c $COMMON src/pc/native_minecraft/bridge.cpp -o build/native-ci/bridge.o
+
+          test -s build/native-ci/input.o
+          test -s build/native-ci/player.o
+          test -s build/native-ci/world.o
+          test -s build/native-ci/bridge.o

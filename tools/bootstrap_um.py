@@ -22,23 +22,14 @@ if not (SM64/".git").is_dir():
     run("git","clone","--depth","1","https://github.com/sm64-port/sm64-port.git",SM64)
 else:
     # Every generated host must start from clean upstream tracked sources.
-    # Generated/untracked adapter files are overwritten by generate_sm64_host.py.
+    # Generated/untracked native fusion files are overwritten by generate_native_minecraft.py.
     run("git","fetch","--depth","1","origin","master",cwd=SM64)
     run("git","reset","--hard","FETCH_HEAD",cwd=SM64)
 
 required=[
  "skills/mashup-mods/SKILL.md",
- "examples/minecraft-gta5-passthrough/README.md",
- "examples/minecraft-gta5-passthrough/mc/src/client/java/dev/rehan/passthrough/client/HostLink.java",
- "examples/minecraft-gta5-passthrough/mc/src/client/java/dev/rehan/passthrough/client/FrameExporter.java",
- "examples/minecraft-gta5-passthrough/mc/src/client/java/dev/rehan/passthrough/client/PlayerSync.java",
- "examples/minecraft-gta5-passthrough/gta/src/ws.cpp",
- "examples/minecraft-gta5-passthrough/gta/src/ws.h",
- "examples/minecraft-gta5-passthrough/gta/src/compositor.cpp",
- "examples/minecraft-gta5-passthrough/gta/src/compositor.h",
- "examples/minecraft-gta5-passthrough/host/fakehost.py",
 ]
 missing=[p for p in required if not (UM/p).is_file()]
 if missing:
     raise SystemExit("Universal Modder reference incomplete: "+", ".join(missing))
-print("Universal Modder passthrough reference ready.")
+print("Universal Modder Pattern 4 reference ready.")

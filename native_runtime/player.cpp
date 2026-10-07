@@ -147,7 +147,6 @@ void nm_simulate_player() {
     }
 
     float nextX = gNm.player.x;
-    float nextY = gNm.player.y + gNm.player.vy;
     float nextZ = gNm.player.z;
 
     move_axis_with_voxels(nextX, gNm.player.x + gNm.player.vx, true);
@@ -155,7 +154,7 @@ void nm_simulate_player() {
     move_axis_with_voxels(nextZ, gNm.player.z + gNm.player.vz, false);
 
     nextX = gNm.player.x;
-    nextZ = nextZ;
+    float nextY = gNm.player.y + gNm.player.vy;
 
     resolve_sm64_walls(nextX, nextY, nextZ);
 

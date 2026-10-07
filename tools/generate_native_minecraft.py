@@ -101,7 +101,7 @@ patch_once(
     mario,
     "        mario_update_hitbox_and_cap_model(gMarioState);\n",
     "        mario_update_hitbox_and_cap_model(gMarioState);\n"
-    "        if (native_minecraft_active()) {\n"
+    "        if (native_minecraft_has_authority()) {\n"
     "            gMarioState->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;\n"
     "        }\n",
 )
@@ -132,7 +132,7 @@ patch_once(
     "void render_hud(void) {\n"
     "    s16 hudDisplayFlags;\n",
     "void render_hud(void) {\n"
-    "    if (native_minecraft_active()) return;\n"
+    "    if (native_minecraft_has_authority()) return;\n"
     "    s16 hudDisplayFlags;\n",
 )
 

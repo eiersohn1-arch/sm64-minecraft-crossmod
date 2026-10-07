@@ -57,6 +57,12 @@ replace_once(
 host_link = CLIENT / "HostLink.java"
 replace_once(
     host_link,
+    '\t\t\t\tcase "cmd" -> WorldBridge.command(m.get("c").getAsString());\n',
+    '\t\t\t\tcase "cmd" -> WorldBridge.command(m.get("c").getAsString());\n'
+    '\t\t\t\tcase "healthdelta" -> WorldBridge.healthDelta(m.get("d").getAsFloat());\n',
+)
+replace_once(
+    host_link,
     '\t\t\t\tcase "ground" -> WorldBridge.solid(ints(m.getAsJsonArray("c")));\n',
     '\t\t\t\tcase "ground" -> WorldBridge.solid(ints(m.getAsJsonArray("c")));\n'
     '\t\t\t\tcase "water" -> WorldBridge.water(ints(m.getAsJsonArray("c")));\n'
@@ -239,6 +245,16 @@ replace_once(
     '\t\t\tdesiredHostSurfaces = null;\n'
     '\t\t\tdesiredHostWater = null;\n'
     '\t\t\tHostSurfaceState.setContext(key);\n'
+    '\t\t});\n'
+    '\t}\n\n'
+    '\t/** Apply native SM64 damage/healing to the real Minecraft survival health bar. */\n'
+    '\tpublic static void healthDelta(final float delta) {\n'
+    '\t\tMinecraftServer s = server;\n'
+    '\t\tif (s == null) return;\n'
+    '\t\ts.execute(() -> {\n'
+    '\t\t\tif (s.getPlayerList().getPlayers().isEmpty()) return;\n'
+    '\t\t\tServerPlayer player = s.getPlayerList().getPlayers().get(0);\n'
+    '\t\t\tplayer.setHealth(Math.clamp(player.getHealth() + delta, 0.0F, player.getMaxHealth()));\n'
     '\t\t});\n'
     '\t}\n\n'
     '\t/** Run a command as the server (op). Results go to the log, not to chat (send_command_feedback is off). */\n'
@@ -429,8 +445,8 @@ replace_once(
     player_sync,
     'Passthrough.events.accept(String.format(Locale.ROOT, "{\\\"t\\\":\\\"mcpos\\\",\\\"pos\\\":[%.4f,%.4f,%.4f],\\\"vel\\\":[%.3f,%.3f,%.3f],\\\"tn\\\":%d,\\\"fly\\\":%b}",\n'
     '				at.x, at.y, at.z, vx, vy, vz, System.nanoTime(), player.isFallFlying()));',
-    'Passthrough.events.accept(String.format(Locale.ROOT, "{\\\"t\\\":\\\"mcpos\\\",\\\"pos\\\":[%.4f,%.4f,%.4f],\\\"vel\\\":[%.3f,%.3f,%.3f],\\\"r\\\":[%.3f,%.3f],\\\"tn\\\":%d,\\\"fly\\\":%b}",\n'
-    '				at.x, at.y, at.z, vx, vy, vz, player.getYRot(), player.getXRot(), System.nanoTime(), player.isFallFlying()));',
+    'Passthrough.events.accept(String.format(Locale.ROOT, "{\\\"t\\\":\\\"mcpos\\\",\\\"pos\\\":[%.4f,%.4f,%.4f],\\\"vel\\\":[%.3f,%.3f,%.3f],\\\"r\\\":[%.3f,%.3f],\\\"health\\\":%.3f,\\\"food\\\":%d,\\\"tn\\\":%d,\\\"fly\\\":%b}",\n'
+    '				at.x, at.y, at.z, vx, vy, vz, player.getYRot(), player.getXRot(), player.getHealth(), player.getFoodData().getFoodLevel(), System.nanoTime(), player.isFallFlying()));',
 )
 
 # 4) The reference world is creative and starts flying because GTA uses it as

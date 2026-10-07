@@ -37,6 +37,10 @@ def prepare_clean_vendor() -> None:
         SM64 / "src" / "pc" / "crossmod_ws_api.cpp",
         SM64 / "src" / "pc" / "crossmod_ws_api.h",
         SM64 / "src" / "pc" / "gfx" / "mc_overlay_dx11.inc",
+        SM64 / "src" / "pc" / "sm64_passthrough.cpp",
+        SM64 / "src" / "pc" / "sm64_passthrough.h",
+        SM64 / "src" / "pc" / "ws.cpp",
+        SM64 / "src" / "pc" / "ws.h",
     ]
     leftovers = [str(p.relative_to(SM64)) for p in legacy if p.exists()]
     if leftovers:
@@ -45,7 +49,7 @@ def prepare_clean_vendor() -> None:
     # Always regenerate the current clean host after git pull so users never
     # build an older generated adapter by accident.
     subprocess.run(
-        [sys.executable, str(ROOT / "tools" / "generate_sm64_host.py")],
+        [sys.executable, str(ROOT / "tools" / "generate_native_minecraft.py")],
         cwd=ROOT,
         check=True,
     )

@@ -10,7 +10,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 GUEST = ROOT / "generated" / "minecraft-guest"
+ADAPTER = ROOT / "guest_adapter"
+MAIN = GUEST / "src" / "main" / "java" / "dev" / "rehan" / "passthrough"
 CLIENT = GUEST / "src" / "client" / "java" / "dev" / "rehan" / "passthrough" / "client"
+RES = GUEST / "src" / "main" / "resources"
 
 
 def replace_once(path: Path, old: str, new: str) -> None:
@@ -24,6 +27,129 @@ def replace_once(path: Path, old: str, new: str) -> None:
 
 if not CLIENT.is_dir():
     raise SystemExit("Run tools/sync_um_reference.py first.")
+
+
+# SM64-specific technical content is kept as tiny tracked adapters while the
+# rest of the guest stays sourced from Universal Modder.
+for source_name, target in (
+    ("HostBlocks.java", MAIN / "HostBlocks.java"),
+    ("HostSurfaceState.java", MAIN / "HostSurfaceState.java"),
+    ("sm64_surface.blockstate.json", RES / "assets" / "passthrough" / "blockstates" / "sm64_surface.json"),
+    ("sm64_surface.model.json", RES / "assets" / "passthrough" / "models" / "block" / "sm64_surface.json"),
+):
+    source = ADAPTER / source_name
+    if not source.is_file():
+        raise SystemExit(f"Missing guest adapter: {source}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(source.read_bytes())
+
+# Register the technical SM64 surface block during the real Fabric mod's
+# normal common initialization.
+passthrough_main = MAIN / "Passthrough.java"
+replace_once(
+    passthrough_main,
+    '\tpublic void onInitialize() {\n',
+    '\tpublic void onInitialize() {\n'
+    '\t\tHostBlocks.initialize();\n',
+)
+
+# Let the host switch between isolated SM64 level/area build zones.
+host_link = CLIENT / "HostLink.java"
+replace_once(
+    host_link,
+    '\t\t\t\tcase "ground" -> WorldBridge.solid(ints(m.getAsJsonArray("c")));\n',
+    '\t\t\t\tcase "ground" -> WorldBridge.solid(ints(m.getAsJsonArray("c")));\n'
+    '\t\t\t\tcase "surfacectx" -> WorldBridge.context(m.get("k").getAsString());\n',
+)
+
+# Upgrade Universal Modder's temporary barrier collision into a real,
+# targetable, breakable Minecraft host-surface block.  Broken SM64 cells are
+# persisted so repeated ground packets cannot recreate them.
+world_bridge = MAIN / "WorldBridge.java"
+replace_once(
+    world_bridge,
+    'private static final Set<BlockPos> barriers = ConcurrentHashMap.newKeySet();',
+    'private static final Set<BlockPos> hostSurfaces = ConcurrentHashMap.newKeySet();',
+)
+replace_once(
+    world_bridge,
+    '\t\tbarriers.clear();\n',
+    '\t\thostSurfaces.clear();\n',
+)
+replace_once(
+    world_bridge,
+    '\t\t\tBlockState barrier = Blocks.BARRIER.defaultBlockState();\n',
+    '\t\t\tBlockState surface = HostBlocks.SM64_SURFACE.defaultBlockState();\n',
+)
+replace_once(
+    world_bridge,
+    '\t\t\t\t\tif (level.isInWorldBounds(pos) && level.getBlockState(pos).isAir()) {\n'
+    '\t\t\t\t\t\tlevel.setBlock(pos, barrier, Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE);\n'
+    '\t\t\t\t\t\tbarriers.add(pos.immutable());\n',
+    '\t\t\t\t\tif (level.isInWorldBounds(pos) && level.getBlockState(pos).isAir() && !HostSurfaceState.mined(pos)) {\n'
+    '\t\t\t\t\t\tlevel.setBlock(pos, surface, Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE);\n'
+    '\t\t\t\t\t\thostSurfaces.add(pos.immutable());\n',
+)
+replace_once(
+    world_bridge,
+    '\t\t\tfor (BlockPos pos : barriers) {\n'
+    '\t\t\t\tif (level.getBlockState(pos).is(Blocks.BARRIER)) {\n',
+    '\t\t\tfor (BlockPos pos : hostSurfaces) {\n'
+    '\t\t\t\tif (level.getBlockState(pos).is(HostBlocks.SM64_SURFACE)) {\n',
+)
+replace_once(
+    world_bridge,
+    '\t\t\tbarriers.clear();\n',
+    '\t\t\thostSurfaces.clear();\n',
+)
+replace_once(
+    world_bridge,
+    '\t\treturn !state.isAir() && !state.is(Blocks.BARRIER) && !state.getCollisionShape(level, pos).isEmpty() && !Nether.isGround(pos);',
+    '\t\treturn !state.isAir() && !state.is(Blocks.BARRIER) && !state.is(HostBlocks.SM64_SURFACE)\n'
+    '\t\t\t&& !state.getCollisionShape(level, pos).isEmpty() && !Nether.isGround(pos);',
+)
+
+replace_once(
+    world_bridge,
+    '\t/** Run a command as the server (op). Results go to the log, not to chat (send_command_feedback is off). */\n'
+    '\tpublic static void command(final String command) {\n',
+    '\t/** Switch the persistent SM64 terrain-edit context and remove the previous level\\'s streamed surface cells. */\n'
+    '\tpublic static void context(final String key) {\n'
+    '\t\tMinecraftServer s = server;\n'
+    '\t\tif (s == null) {\n'
+    '\t\t\tHostSurfaceState.setContext(key);\n'
+    '\t\t\treturn;\n'
+    '\t\t}\n\n'
+    '\t\ts.execute(() -> {\n'
+    '\t\t\tServerLevel level = s.overworld();\n'
+    '\t\t\tplacingGround = true;\n'
+    '\t\t\tfor (BlockPos pos : hostSurfaces) {\n'
+    '\t\t\t\tif (level.getBlockState(pos).is(HostBlocks.SM64_SURFACE)) {\n'
+    '\t\t\t\t\tlevel.setBlock(pos, Blocks.AIR.defaultBlockState(), Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE);\n'
+    '\t\t\t\t}\n'
+    '\t\t\t}\n'
+    '\t\t\tplacingGround = false;\n'
+    '\t\t\thostSurfaces.clear();\n'
+    '\t\t\tHostSurfaceState.setContext(key);\n'
+    '\t\t});\n'
+    '\t}\n\n'
+    '\t/** Run a command as the server (op). Results go to the log, not to chat (send_command_feedback is off). */\n'
+    '\tpublic static void command(final String command) {\n',
+)
+
+replace_once(
+    world_bridge,
+    '\t\tNether.onBlockChanged(pos, state);\n'
+    '\t\tif (!placingGround) {\n',
+    '\t\tNether.onBlockChanged(pos, state);\n'
+    '\t\tif (!placingGround && hostSurfaces.remove(pos) && !state.is(HostBlocks.SM64_SURFACE)) {\n'
+    '\t\t\tHostSurfaceState.markMined(pos);\n'
+    '\t\t\tPassthrough.events.accept(String.format(Locale.ROOT,\n'
+    '\t\t\t\t"{\\"t\\":\\"surfacebreak\\",\\"p\\":[%d,%d,%d]}", pos.getX(), pos.getY(), pos.getZ()));\n'
+    '\t\t\treturn;\n'
+    '\t\t}\n'
+    '\t\tif (!placingGround) {\n',
+)
 
 # 1) GTA has a camera-near-head heuristic that can hide Steve.  For SM64 a
 # requested third-person view must always render the player model.
@@ -270,15 +396,10 @@ passthrough_client.write_text(guest_text, encoding="utf-8")
 
 
 
-# 5) Keep the real Minecraft world/session in survival on every join.  The UM
-# GTA demo starts from creative-flight assumptions; the SM64 mashup must not.
-world_bridge = ROOT / "generated" / "minecraft-guest" / "src" / "main" / "java" / "dev" / "rehan" / "passthrough" / "WorldBridge.java"
+# 5) The guest remains Universal Modder's real Minecraft runtime; the SM64
+# delta now adds persistent, mineable host surfaces and full GUI/control sync.
 if not world_bridge.is_file():
     raise SystemExit("Universal Modder WorldBridge.java missing.")
 
-# No source copy is replaced here: WorldBridge remains the UM implementation.
-# The existing guest patch already switches LevelSettings to SURVIVAL and
-# disables creative flight in PlayerSync/PassthroughClient.
-
-print("Universal Modder guest kept intact; SM64 survival-control delta applied.")
+print("Universal Modder guest patched for persistent interactive SM64 world surfaces.")
 

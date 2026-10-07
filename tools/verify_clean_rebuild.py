@@ -77,6 +77,13 @@ contains(SM64 / "src" / "game" / "mario.c", "um_passthrough_apply_mario_proxy", 
 contains(SM64 / "src" / "game" / "camera.c", "um_passthrough_override_camera", "camera hook installed")
 contains(SM64 / "src" / "game" / "hud.c", "um_passthrough_connected", "duplicate SM64 HUD hidden")
 
+guest_input = ROOT / "generated" / "minecraft-guest" / "src" / "client" / "java" / "dev" / "rehan" / "passthrough" / "client" / "ClientInput.java"
+contains(guest_input, "MouseButtonEvent", "real Minecraft GUI receives mouse events")
+contains(guest_input, 'case "pointer"', "real Minecraft GUI receives SM64 pointer position")
+contains(guest_input, 'case "uibutton"', "real Minecraft GUI receives click/release")
+contains(guest_input, "mouseDragged", "real Minecraft GUI receives drag")
+contains(guest_input, "mouseScrolled", "real Minecraft GUI receives wheel")
+
 failed = [name for name, ok in checks if not ok]
 for name, ok in checks:
     if ok:

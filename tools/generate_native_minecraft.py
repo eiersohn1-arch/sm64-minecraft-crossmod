@@ -745,8 +745,76 @@ static void nm_add_box(float cx, float cy, float cz,
     }
 }
 
+static void nm_add_world_box(float cx, float cy, float cz,
+                             float sx, float sy, float sz,
+                             float r, float g, float b) {
+    const float hx=sx*0.5f, hy=sy*0.5f, hz=sz*0.5f;
+    NmPoint p[8] = {
+        {cx-hx,cy-hy,cz-hz},{cx+hx,cy-hy,cz-hz},
+        {cx+hx,cy+hy,cz-hz},{cx-hx,cy+hy,cz-hz},
+        {cx-hx,cy-hy,cz+hz},{cx+hx,cy-hy,cz+hz},
+        {cx+hx,cy+hy,cz+hz},{cx-hx,cy+hy,cz+hz},
+    };
+    static const int faces[6][4] = {
+        {0,1,2,3},{5,4,7,6},{4,0,3,7},
+        {1,5,6,2},{3,2,6,7},{4,5,1,0}
+    };
+    for (int fi=0; fi<6; ++fi) {
+        NmVertex q[4];
+        float d[4];
+        bool ok=true;
+        for (int k=0;k<4;++k) {
+            if (!nm_project(p[faces[fi][k]],q[k],r,g,b,1.0f,&d[k])) {
+                ok=false;
+                break;
+            }
+        }
+        if (!ok) continue;
+        NmFace face{};
+        face.v[0]=q[0]; face.v[1]=q[1]; face.v[2]=q[2];
+        face.v[3]=q[0]; face.v[4]=q[2]; face.v[5]=q[3];
+        face.depth=(d[0]+d[1]+d[2]+d[3])*0.25f;
+        nm_faces.push_back(face);
+    }
+}
+
+static void nm_build_blocks() {
+    const int count=native_minecraft_block_count();
+    for (int i=0;i<count;++i) {
+        int bx=0,by=0,bz=0,type=0;
+        if (!native_minecraft_get_block(i,&bx,&by,&bz,&type)) continue;
+
+        float r=0.45f,g=0.32f,b=0.18f;
+        switch (type) {
+            case 1: r=0.28f; g=0.62f; b=0.20f; break; // grass
+            case 2: r=0.52f; g=0.52f; b=0.52f; break; // stone
+            case 3: r=0.48f; g=0.30f; b=0.17f; break; // dirt
+            case 4: r=0.70f; g=0.53f; b=0.31f; break; // planks
+            case 5: r=0.38f; g=0.38f; b=0.40f; break; // cobble
+            case 6: r=0.55f; g=0.78f; b=0.82f; break; // glass-ish
+            case 7: r=0.78f; g=0.12f; b=0.10f; break; // TNT-ish
+            case 8: r=0.90f; g=0.75f; b=0.25f; break; // torch-ish
+            case 9: r=0.58f; g=0.20f; b=0.18f; break; // bricks
+        }
+        nm_add_world_box(
+            (bx+0.5f)*100.0f,
+            (by+0.5f)*100.0f,
+            (bz+0.5f)*100.0f,
+            98.0f,98.0f,98.0f,
+            r,g,b
+        );
+    }
+}
+
+static void nm_flush_faces() {
+    std::sort(nm_faces.begin(), nm_faces.end(),
+        [](const NmFace &a, const NmFace &b) { return a.depth > b.depth; });
+    for (const NmFace &f : nm_faces) {
+        for (int i=0;i<6;++i) nm_vertices.push_back(f.v[i]);
+    }
+}
+
 static void nm_build_steve() {
-    nm_faces.clear();
     // Minecraft-like proportions in SM64 world units.
     nm_add_box(0,156,0,50,50,50, 0.72f,0.52f,0.36f); // head
     nm_add_box(0,111,0,60,70,30, 0.05f,0.55f,0.62f); // shirt
@@ -755,11 +823,6 @@ static void nm_build_steve() {
     nm_add_box(-44,108,0,24,74,24, 0.72f,0.52f,0.36f);
     nm_add_box( 44,108,0,24,74,24, 0.72f,0.52f,0.36f);
 
-    std::sort(nm_faces.begin(), nm_faces.end(),
-        [](const NmFace &a, const NmFace &b) { return a.depth > b.depth; });
-    for (const NmFace &f : nm_faces) {
-        for (int i=0;i<6;++i) nm_vertices.push_back(f.v[i]);
-    }
 }
 
 static void nm_build_hud() {
@@ -827,7 +890,7 @@ float4 PS(VSOut i):SV_TARGET { return i.c; }
         desc,2,vsb->GetBufferPointer(),vsb->GetBufferSize(),nm_layout.GetAddressOf()))) return false;
 
     D3D11_BUFFER_DESC bd{};
-    bd.ByteWidth=sizeof(NmVertex)*16384;
+    bd.ByteWidth=sizeof(NmVertex)*32768;
     bd.Usage=D3D11_USAGE_DYNAMIC;
     bd.BindFlags=D3D11_BIND_VERTEX_BUFFER;
     bd.CPUAccessFlags=D3D11_CPU_ACCESS_WRITE;
@@ -862,16 +925,19 @@ static void nm_render_native_minecraft() {
     );
 
     nm_vertices.clear();
-    nm_vertices.reserve(4096);
+    nm_vertices.reserve(8192);
+    nm_faces.clear();
 
+    nm_build_blocks();
     if (!nm_first_person) nm_build_steve();
+    nm_flush_faces();
     nm_build_hud();
     if (nm_vertices.empty()) return;
 
     D3D11_MAPPED_SUBRESOURCE mapped{};
     if (FAILED(d3d.context->Map(nm_vb.Get(),0,D3D11_MAP_WRITE_DISCARD,0,&mapped))) return;
     const size_t bytes=nm_vertices.size()*sizeof(NmVertex);
-    if (bytes > sizeof(NmVertex)*16384) {
+    if (bytes > sizeof(NmVertex)*32768) {
         d3d.context->Unmap(nm_vb.Get(),0);
         return;
     }

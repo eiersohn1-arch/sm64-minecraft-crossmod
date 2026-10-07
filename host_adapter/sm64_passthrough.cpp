@@ -1,6 +1,7 @@
 #include "sm64_passthrough.h"
 #include "ws.h"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cmath>

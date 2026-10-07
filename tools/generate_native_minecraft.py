@@ -42,6 +42,8 @@ void native_minecraft_override_camera(void);
 int native_minecraft_active(void);
 int native_minecraft_first_person(void);
 int native_minecraft_selected_slot(void);
+int native_minecraft_block_count(void);
+int native_minecraft_get_block(int index, int *x, int *y, int *z, int *type);
 void native_minecraft_get_render_state(
     float *x, float *y, float *z,
     float *yaw, float *pitch,
@@ -58,6 +60,7 @@ void native_minecraft_get_render_state(
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <vector>
 
 #define WIN32_LEAN_AND_MEAN
 #ifndef NOMINMAX

@@ -369,6 +369,20 @@ replace_once(
     "this.detached = !p.firstPerson(); // host-follow mode only; drive mode keeps vanilla Minecraft camera",
 )
 
+# Native-geometry mode: the Minecraft process still simulates Steve, but its
+# third-person body is not baked into the exported world image. SM64 draws the
+# avatar itself in the host 3D pass so it shares host projection/depth instead
+# of looking like a flat pasted layer.
+avatar_renderer = CLIENT / "mixin" / "AvatarRendererMixin.java"
+replace_once(
+    avatar_renderer,
+    '\t\tHostState.Pose p = HostState.frame();\n',
+    '\t\tHostState.Pose p = HostState.frame();\n'
+    '\t\tif (p != null && p.drive() && entity == Minecraft.getInstance().player) {\n'
+    '\t\t\tstate.isInvisible = true;\n'
+    '\t\t}\n',
+)
+
 # 2) Feed real Minecraft movement and mouse look from the focused SM64 window.
 client_input = CLIENT / "ClientInput.java"
 replace_once(

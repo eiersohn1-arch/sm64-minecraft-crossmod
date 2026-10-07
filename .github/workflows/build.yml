@@ -83,10 +83,12 @@ jobs:
             mingw-w64-x86_64-SDL2
             mingw-w64-x86_64-glew
 
-      - name: Generate real Universal Modder SM64 host
+      - name: Generate real Universal Modder guest and SM64 host
         shell: msys2 {0}
         run: |
           python tools/bootstrap_um.py
+          python tools/sync_um_reference.py
+          python tools/patch_guest_for_sm64.py
           python tools/generate_sm64_host.py
           python tools/patch_sm64_toolchain.py
 

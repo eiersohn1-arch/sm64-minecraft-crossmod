@@ -49,7 +49,21 @@ SM64 retains:
 
 During those states Minecraft switches from drive mode to host-follow mode, so its player/camera follows the SM64 state instead of fighting it.
 
-## Collision
+## Collision and editable world
+
+The bridge is now bidirectional, not just host ground -> Minecraft.
+
+### SM64 -> Minecraft
+
+Each SM64 save/level/area is assigned a deterministic hidden Minecraft coordinate zone. The host streams nearby floors, ceilings and walls into that zone as `passthrough:sm64_surface`, a technical Minecraft block with normal targeting/collision and finite mining strength. It has no BlockItem, so the player cannot obtain fake Mario terrain as an inventory item.
+
+When Steve mines one of those cells, the guest writes a persistent tombstone under `sm64-surface-breaks/<context>.txt`. Later terrain packets skip that cell, so mining is stable across restarts and level revisits.
+
+### Minecraft -> SM64
+
+Universal Modder's existing block-change stream is consumed by the SM64 host. Nearby real Minecraft blocks are cached and rebuilt each frame as native SM64 dynamic collision boxes after moving-platform collision has loaded. Existing builds are re-synced after a warp with `blocksync`.
+
+That means placement is not just visual composition: Minecraft owns the block, and SM64 receives physical collision for it too.
 
 The host samples nearby:
 
@@ -60,6 +74,16 @@ The host samples nearby:
 Those samples are sent through Universal Modder's existing `ground` protocol and become invisible Minecraft barrier blocks via the unchanged `WorldBridge.solid()`.
 
 Minecraft-placed blocks stay real Minecraft blocks; Universal Modder's server-side block tracking continues to report their changes.
+
+## Original SM64 interactions
+
+Minecraft still owns movement physics, but the host maps Minecraft controls into semantic SM64 buttons on the invisible Mario proxy:
+
+- Space -> A
+- left/right click -> B
+- Shift -> Z
+
+Analog stick input remains zero. This lets native SM64 interaction/action code continue to process doors, switches, breakables and other mission mechanics without re-enabling Mario locomotion.
 
 ## Input
 

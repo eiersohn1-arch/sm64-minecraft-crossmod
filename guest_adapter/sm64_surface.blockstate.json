@@ -1,7 +1,9 @@
 {
-  "variants": {
-    "": {
-      "model": "passthrough:block/sm64_surface"
+  "multipart": [
+    {
+      "apply": {
+        "model": "passthrough:block/sm64_surface"
+      }
     }
-  }
+  ]
 }

@@ -12,6 +12,7 @@ int um_passthrough_minecraft_authority(void);
 
 void um_passthrough_neutralize_controller(struct MarioState *m);
 void um_passthrough_apply_mario_proxy(struct MarioState *m);
+void um_passthrough_sync_health(struct MarioState *m);
 void um_passthrough_override_camera(void);
 void um_passthrough_before_frame(void);
 void um_passthrough_frame(void);

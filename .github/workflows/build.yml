@@ -90,7 +90,6 @@ jobs:
           python tools/sync_um_reference.py
           python tools/patch_guest_for_sm64.py
           python tools/generate_sm64_host.py
-          python tools/patch_sm64_toolchain.py
 
       - name: Syntax-check host, raw input and D3D11 compositor
         shell: msys2 {0}
@@ -107,9 +106,9 @@ jobs:
       - name: Compile host adapter objects without retail ROM
         shell: msys2 {0}
         run: |
-          cd vendor/sm64-port
+          cd vendor/sm64coopdx
           mkdir -p build/passthrough-ci
-          COMMON="-DTARGET_PC=1 -DTARGET_WINDOWS=1 -DVERSION_US=1 -DAVOID_UB=1 -DNON_MATCHING=1 -DNO_SEGMENTED_MEMORY=1 -DUSE_SYSTEM_MALLOC=1 -D_LANGUAGE_C=1 -I. -Iinclude -Isrc -Isrc/pc -Isrc/pc/gfx"
+          COMMON="-DTARGET_PC=1 -DVERSION_US=1 -DAVOID_UB=1 -DNON_MATCHING=1 -D_LANGUAGE_C=1 -DWINSOCK -I. -Iinclude -Isrc -Isrc/pc -Isrc/pc/gfx -Isound -Ilib/lua/include -Ilib/coopnet/include $(sdl2-config --cflags)"
 
           g++ -std=gnu++17 -c $COMMON src/pc/sm64_passthrough.cpp -o build/passthrough-ci/sm64_passthrough.o
           g++ -std=gnu++17 -c $COMMON src/pc/ws.cpp -o build/passthrough-ci/ws.o

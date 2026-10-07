@@ -10,6 +10,8 @@
 // exported from the user's Minecraft runtime in the next asset pass rather
 // than committed to the repository.
 
+static void um_invalidate_sm64_state();
+
 struct UmNativeVertex {
     float position[4];
     float color[4];

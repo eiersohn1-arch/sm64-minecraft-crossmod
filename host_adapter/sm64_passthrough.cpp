@@ -196,8 +196,7 @@ bool native_sm64_action_owns_player() {
     const u32 group = gMarioState->action & ACT_GROUP_MASK;
     return group == ACT_GROUP_CUTSCENE
         || group == ACT_GROUP_AUTOMATIC
-        || group == ACT_GROUP_OBJECT
-        || group == ACT_GROUP_SUBMERGED;
+        || group == ACT_GROUP_OBJECT;
 }
 
 void poll_guest_messages() {
@@ -481,6 +480,7 @@ void publish_collision() {
 
     const float probeY = gMarioState->pos[1];
     std::string cols;
+    std::string waterCols;
     bool sentAny = false;
 
     auto flush_columns = [&]() {
@@ -488,6 +488,11 @@ void publish_collision() {
         g_ws.send("{\"t\":\"ground\",\"c\":[" + cols + "]}");
         cols.clear();
         sentAny = true;
+    };
+    auto flush_water = [&]() {
+        if (waterCols.empty()) return;
+        g_ws.send("{\"t\":\"water\",\"c\":[" + waterCols + "]}");
+        waterCols.clear();
     };
 
     g_ws.send("{\"t\":\"surfacebegin\"}");
@@ -520,6 +525,19 @@ void publish_collision() {
                     std::floor(floorY / SCALE + MC_Y0 + 0.5f)
                 ) - 1;
                 append_column(cols, x, z, floorTop - 3, floorTop);
+
+                const float waterY = find_water_level(sx, sz);
+                if (waterY > FLOOR_LOWER_LIMIT
+                    && waterY > floorY + 20.0f
+                    && waterY < CELL_HEIGHT_LIMIT) {
+                    const int waterTop = static_cast<int>(
+                        std::floor(waterY / SCALE + MC_Y0)
+                    ) - 1;
+                    append_column(
+                        waterCols, x, z,
+                        floorTop + 1, waterTop
+                    );
+                }
             }
 
             struct Surface *ceil = nullptr;
@@ -556,10 +574,14 @@ void publish_collision() {
             if (cols.size() > 6000) {
                 flush_columns();
             }
+            if (waterCols.size() > 6000) {
+                flush_water();
+            }
         }
     }
 
     flush_columns();
+    flush_water();
     g_ws.send("{\"t\":\"surfaceend\"}");
 
     if (g_spawnSyncPending && sentAny) {

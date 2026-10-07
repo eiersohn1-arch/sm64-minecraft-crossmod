@@ -76,7 +76,11 @@ This branch is no longer a flat overlay proof-of-concept. The two runtimes now s
 - vanilla Minecraft block placement therefore works directly against streamed Mario-world surfaces
 - Minecraft block changes are sent back to SM64
 - those blocks are rebuilt as native SM64 dynamic collision boxes every frame, so the host simulation can collide with the player's builds
+- nearby SM64 collision is re-snapshotted repeatedly instead of only once, so moving platforms/elevators update in Minecraft
+- SM64 water boxes are mirrored as real Minecraft source-water columns; Steve keeps Minecraft swimming physics instead of falling back to Mario swimming controls
+- Minecraft health/hunger are reported with the authoritative pose; native SM64 damage/healing is fed back into Steve's real Minecraft health
 - Minecraft jump/attack/use/sneak also feed semantic A/B/Z button presses to the invisible Mario proxy, preserving doors, switches, breakables and other original SM64 interaction code while Minecraft still owns locomotion
+- during native SM64 object/automatic actions, WASD remains the SM64 stick while Space/click/Shift stay mapped to A/B/Z, so boss/door/object state machines do not require a second control scheme
 
 - real Win32 raw mouse input from the SM64 window
 - real Minecraft key mappings

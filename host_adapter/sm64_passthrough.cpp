@@ -8,6 +8,8 @@
 #include <cstdio>
 #include <string>
 #include <unordered_set>
+#include <unordered_map>
+#include <cstdlib>
 
 #define WIN32_LEAN_AND_MEAN
 #ifndef NOMINMAX
@@ -47,9 +49,19 @@ constexpr float DEG_TO_RAD = 0.01745329251994329577f;
 WsClient g_ws;
 unsigned long long g_hostFrame = 0;
 int g_generation = -1;
+int g_save = -1;
 int g_level = -1;
 int g_area = -1;
+double g_worldOffsetX = 0.0;
+double g_worldOffsetZ = 0.0;
 std::unordered_set<unsigned long long> g_collisionSampled;
+
+struct McBlockCoord {
+    int x;
+    int y;
+    int z;
+};
+std::unordered_map<unsigned long long, McBlockCoord> g_minecraftBlocks;
 
 std::array<std::atomic<unsigned char>, 256> g_keys{};
 std::array<std::atomic<unsigned char>, 256> g_pressed{};
@@ -92,6 +104,68 @@ struct McPose {
 
 McPose g_mc;
 
+unsigned long long minecraft_block_key(int x, int y, int z) {
+    const unsigned long long ux = static_cast<unsigned int>(x);
+    const unsigned long long uy = static_cast<unsigned int>(y);
+    const unsigned long long uz = static_cast<unsigned int>(z);
+    return (ux * 0x9E3779B185EBCA87ULL)
+        ^ (uy * 0xC2B2AE3D27D4EB4FULL)
+        ^ (uz * 0x165667B19E3779F9ULL);
+}
+
+void apply_block_array(const std::string &message, const char *field, bool add) {
+    const std::string marker = std::string("\"") + field + "\":[";
+    const size_t at = message.find(marker);
+    if (at == std::string::npos) return;
+
+    const char *p = message.c_str() + at + marker.size();
+    const char *end = message.c_str() + message.size();
+
+    while (p < end && *p != ']') {
+        char *next = nullptr;
+        const long x = std::strtol(p, &next, 10);
+        if (next == p) break;
+        p = next;
+        if (p >= end || *p++ != ',') break;
+
+        const long y = std::strtol(p, &next, 10);
+        if (next == p) break;
+        p = next;
+        if (p >= end || *p++ != ',') break;
+
+        const long z = std::strtol(p, &next, 10);
+        if (next == p) break;
+        p = next;
+
+        const int ix = static_cast<int>(x);
+        const int iy = static_cast<int>(y);
+        const int iz = static_cast<int>(z);
+        const auto key = minecraft_block_key(ix, iy, iz);
+
+        if (add) {
+            if (g_minecraftBlocks.size() < 4096 || g_minecraftBlocks.count(key)) {
+                g_minecraftBlocks[key] = { ix, iy, iz };
+            }
+        } else {
+            g_minecraftBlocks.erase(key);
+        }
+
+        if (p < end && *p == ',') ++p;
+    }
+}
+
+void update_world_zone() {
+    const int save = gCurrSaveFileNum > 0 ? gCurrSaveFileNum - 1 : 0;
+    const int level = gCurrLevelNum > 0 ? gCurrLevelNum : 0;
+    const int area = gCurrAreaIndex > 0 ? gCurrAreaIndex : 0;
+    const int index = save * 256 + level * 8 + area;
+
+    constexpr int GRID = 32;
+    constexpr double STRIDE = 512.0;
+    g_worldOffsetX = static_cast<double>(index % GRID) * STRIDE;
+    g_worldOffsetZ = static_cast<double>(index / GRID) * STRIDE;
+}
+
 bool host_has_focus() {
     return g_focused.load(std::memory_order_relaxed);
 }
@@ -123,6 +197,12 @@ bool native_sm64_action_owns_player() {
 void poll_guest_messages() {
     std::string message;
     while (g_ws.poll(message)) {
+        if (message.find("\"t\":\"blocks\"") != std::string::npos) {
+            apply_block_array(message, "set", true);
+            apply_block_array(message, "clear", false);
+            continue;
+        }
+
         if (message.find("\"t\":\"screen\"") != std::string::npos) {
             const bool open =
                 message.find("\"open\":true") != std::string::npos;
@@ -345,19 +425,31 @@ void append_column(
 void reset_collision_if_needed() {
     const int generation = g_ws.generation();
     if (generation == g_generation
+        && gCurrSaveFileNum == g_save
         && gCurrLevelNum == g_level
         && gCurrAreaIndex == g_area) {
         return;
     }
 
     g_generation = generation;
+    g_save = gCurrSaveFileNum;
     g_level = gCurrLevelNum;
     g_area = gCurrAreaIndex;
+    update_world_zone();
+
     g_collisionSampled.clear();
+    g_minecraftBlocks.clear();
     g_mc.valid = false;
     g_spawnSyncPending = true;
     g_driveDelayFrames = 10;
-    g_ws.send("{\"t\":\"clear\"}");
+
+    char context[160];
+    std::snprintf(
+        context, sizeof(context),
+        "{\"t\":\"surfacectx\",\"k\":\"save%d-level%d-area%d\"}",
+        g_save, g_level, g_area
+    );
+    g_ws.send(context);
 }
 
 void publish_collision() {
@@ -379,16 +471,18 @@ void publish_collision() {
         for (int dx = -RADIUS; dx <= RADIUS && probes < BUDGET; ++dx) {
             if (dx * dx + dz * dz > RADIUS * RADIUS) continue;
 
-            const int x = cx + dx;
-            const int z = cz + dz;
+            const int x = cx + dx + static_cast<int>(g_worldOffsetX);
+            const int z = cz + dz + static_cast<int>(g_worldOffsetZ);
             const auto key = column_key(x, z);
             if (g_collisionSampled.count(key)) continue;
 
             ++probes;
             g_collisionSampled.insert(key);
 
-            const float sx = (x + 0.5f) * SCALE;
-            const float sz = -(z + 0.5f) * SCALE;
+            const float sx =
+                (static_cast<float>(x) + 0.5f - static_cast<float>(g_worldOffsetX)) * SCALE;
+            const float sz =
+                -(static_cast<float>(z) + 0.5f - static_cast<float>(g_worldOffsetZ)) * SCALE;
 
             struct Surface *floor = nullptr;
             const float floorY = find_floor(
@@ -450,9 +544,9 @@ void publish_collision() {
     }
 
     if (g_spawnSyncPending && !cols.empty()) {
-        const double x = gMarioState->pos[0] / SCALE;
+        const double x = gMarioState->pos[0] / SCALE + g_worldOffsetX;
         const double y = gMarioState->pos[1] / SCALE + MC_Y0 + 0.12;
-        const double z = -gMarioState->pos[2] / SCALE;
+        const double z = -gMarioState->pos[2] / SCALE + g_worldOffsetZ;
 
         char command[192];
         std::snprintf(
@@ -462,7 +556,39 @@ void publish_collision() {
         );
         g_ws.send(command);
         g_ws.send("{\"t\":\"cmd\",\"c\":\"gamemode survival @a\"}");
+        g_ws.send("{\"t\":\"blocksync\",\"r\":48}");
         g_spawnSyncPending = false;
+    }
+}
+
+void load_minecraft_block_collision() {
+    for (const auto &entry : g_minecraftBlocks) {
+        const McBlockCoord &block = entry.second;
+
+        const float minX =
+            (static_cast<float>(block.x) - static_cast<float>(g_worldOffsetX)) * SCALE;
+        const float maxX = minX + SCALE;
+        const float minY =
+            (static_cast<float>(block.y) - MC_Y0) * SCALE;
+        const float maxY = minY + SCALE;
+        const float minZ =
+            -(static_cast<float>(block.z + 1) - static_cast<float>(g_worldOffsetZ)) * SCALE;
+        const float maxZ = minZ + SCALE;
+
+        if (minX <= -8190.0f || maxX >= 8190.0f
+            || minZ <= -8190.0f || maxZ >= 8190.0f
+            || minY <= -8190.0f || maxY >= 8190.0f) {
+            continue;
+        }
+
+        crossmod_add_dynamic_box(
+            static_cast<s16>(std::lround(minX)),
+            static_cast<s16>(std::lround(minY)),
+            static_cast<s16>(std::lround(minZ)),
+            static_cast<s16>(std::lround(maxX)),
+            static_cast<s16>(std::lround(maxY)),
+            static_cast<s16>(std::lround(maxZ))
+        );
     }
 }
 
@@ -578,9 +704,9 @@ void um_passthrough_apply_mario_proxy(struct MarioState *m) {
 
     constexpr float ANGLE = 65536.0f / 360.0f;
 
-    const float nextX = static_cast<float>(g_mc.x * SCALE);
+    const float nextX = static_cast<float>((g_mc.x - g_worldOffsetX) * SCALE);
     const float nextY = static_cast<float>((g_mc.y - MC_Y0) * SCALE);
-    const float nextZ = static_cast<float>(-g_mc.z * SCALE);
+    const float nextZ = static_cast<float>(-(g_mc.z - g_worldOffsetZ) * SCALE);
 
     if (!std::isfinite(nextX)
         || !std::isfinite(nextY)
@@ -600,21 +726,18 @@ void um_passthrough_apply_mario_proxy(struct MarioState *m) {
         nextX, nextY + 900.0f, nextZ, &nextFloor
     );
 
-    if (nextFloor == nullptr
-        || floorY <= FLOOR_LOWER_LIMIT
-        || nextY - floorY > 1200.0f
-        || floorY - nextY > 300.0f) {
-        g_mc.valid = false;
-        g_spawnSyncPending = true;
-        g_driveDelayFrames = 10;
-        return;
-    }
-
+    // Minecraft owns locomotion. A missing native floor is allowed here because
+    // the user may have mined the mirrored SM64 surface in Minecraft.
     m->pos[0] = nextX;
     m->pos[1] = nextY;
     m->pos[2] = nextZ;
-    m->floor = nextFloor;
-    m->floorHeight = floorY;
+    if (nextFloor != nullptr && floorY > FLOOR_LOWER_LIMIT) {
+        m->floor = nextFloor;
+        m->floorHeight = floorY;
+    } else {
+        m->floor = nullptr;
+        m->floorHeight = FLOOR_LOWER_LIMIT;
+    }
 
     m->vel[0] = static_cast<float>(g_mc.vx * SCALE);
     m->vel[1] = static_cast<float>(g_mc.vy * SCALE);
@@ -651,11 +774,11 @@ void um_passthrough_override_camera(void) {
     const float fy = -std::sin(pitch);
     const float fz = -std::cos(yaw) * cp;
 
-    const float eyeX = static_cast<float>(g_mc.x * SCALE);
+    const float eyeX = static_cast<float>((g_mc.x - g_worldOffsetX) * SCALE);
     const float eyeY = static_cast<float>(
         (g_mc.y - MC_Y0 + 1.62) * SCALE
     );
-    const float eyeZ = static_cast<float>(-g_mc.z * SCALE);
+    const float eyeZ = static_cast<float>(-(g_mc.z - g_worldOffsetZ) * SCALE);
 
     const float distance = g_firstPerson ? 0.0f : 400.0f;
 
@@ -709,13 +832,13 @@ void um_passthrough_frame(void) {
         && !g_spawnSyncPending
         && g_driveDelayFrames == 0;
 
-    const float camX = gLakituState.curPos[0] / SCALE;
+    const float camX = gLakituState.curPos[0] / SCALE + static_cast<float>(g_worldOffsetX);
     const float camY = gLakituState.curPos[1] / SCALE + MC_Y0;
-    const float camZ = -gLakituState.curPos[2] / SCALE;
+    const float camZ = -gLakituState.curPos[2] / SCALE + static_cast<float>(g_worldOffsetZ);
 
-    const float playerX = gMarioState->pos[0] / SCALE;
+    const float playerX = gMarioState->pos[0] / SCALE + static_cast<float>(g_worldOffsetX);
     const float playerY = gMarioState->pos[1] / SCALE + MC_Y0;
-    const float playerZ = -gMarioState->pos[2] / SCALE;
+    const float playerZ = -gMarioState->pos[2] / SCALE + static_cast<float>(g_worldOffsetZ);
 
     const float dx =
         (gLakituState.curFocus[0] - gLakituState.curPos[0]) / SCALE;
@@ -763,4 +886,10 @@ void um_passthrough_frame(void) {
 
     publish_collision();
     publish_input();
+}
+
+
+void um_passthrough_load_block_surfaces(void) {
+    if (!g_ws.connected()) return;
+    load_minecraft_block_collision();
 }

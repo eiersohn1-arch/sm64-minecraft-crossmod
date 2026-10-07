@@ -470,6 +470,21 @@ void append_column(
     cols += entry;
 }
 
+void append_surface16(
+    std::string &cells,
+    int x, int z, int blockY, int height16
+) {
+    height16 = std::clamp(height16, 1, 16);
+    char entry[80];
+    std::snprintf(
+        entry, sizeof(entry),
+        "%s%d,%d,%d,%d",
+        cells.empty() ? "" : ",",
+        x, z, blockY, height16
+    );
+    cells += entry;
+}
+
 void reset_collision_if_needed() {
     const int generation = g_ws.generation();
     if (generation == g_generation
@@ -525,6 +540,7 @@ void publish_collision() {
 
     const float probeY = gMarioState->pos[1];
     std::string cols;
+    std::string floorCells;
     std::string waterCols;
     bool sentAny = false;
 
@@ -532,6 +548,12 @@ void publish_collision() {
         if (cols.empty()) return;
         g_ws.send("{\"t\":\"ground\",\"c\":[" + cols + "]}");
         cols.clear();
+        sentAny = true;
+    };
+    auto flush_floor16 = [&]() {
+        if (floorCells.empty()) return;
+        g_ws.send("{\"t\":\"ground16\",\"c\":[" + floorCells + "]}");
+        floorCells.clear();
         sentAny = true;
     };
     auto flush_water = [&]() {
@@ -561,15 +583,30 @@ void publish_collision() {
                 sx, probeY + 900.0f, sz, &floor
             );
 
-            int floorTop = 0;
+            int floorAbove = 0;
             const bool haveFloor =
                 floor != nullptr && floorY > FLOOR_LOWER_LIMIT;
 
             if (haveFloor) {
-                floorTop = static_cast<int>(
-                    std::floor(floorY / SCALE + MC_Y0 + 0.5f)
-                ) - 1;
-                append_column(cols, x, z, floorTop - 3, floorTop);
+                // Preserve the actual SM64 polygon height to 1/16 of a
+                // Minecraft block. The old whole-block rounding is what made
+                // Steve visibly sink into / float over Peach's Castle.
+                const float floorMcY = floorY / SCALE + MC_Y0;
+                int floorBlockY = static_cast<int>(std::floor(floorMcY));
+                float fraction = floorMcY - static_cast<float>(floorBlockY);
+                int height16 = 16;
+                if (fraction <= 0.0001f) {
+                    --floorBlockY;
+                } else {
+                    height16 = std::clamp(
+                        static_cast<int>(std::ceil(fraction * 16.0f)),
+                        1, 16
+                    );
+                }
+                append_surface16(
+                    floorCells, x, z, floorBlockY, height16
+                );
+                floorAbove = static_cast<int>(std::ceil(floorMcY));
 
                 const float waterY = find_water_level(sx, sz);
                 if (waterY > FLOOR_LOWER_LIMIT
@@ -580,7 +617,7 @@ void publish_collision() {
                     ) - 1;
                     append_column(
                         waterCols, x, z,
-                        floorTop + 1, waterTop
+                        floorAbove, waterTop
                     );
                 }
             }
@@ -610,7 +647,7 @@ void publish_collision() {
             if (wall.numWalls > 0 && haveFloor) {
                 append_column(
                     cols, x, z,
-                    floorTop + 1, floorTop + 4
+                    floorAbove, floorAbove + 3
                 );
             }
 
@@ -619,12 +656,16 @@ void publish_collision() {
             if (cols.size() > 6000) {
                 flush_columns();
             }
+            if (floorCells.size() > 6000) {
+                flush_floor16();
+            }
             if (waterCols.size() > 6000) {
                 flush_water();
             }
         }
     }
 
+    flush_floor16();
     flush_columns();
     flush_water();
     g_ws.send("{\"t\":\"surfaceend\"}");

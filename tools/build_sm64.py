@@ -6,6 +6,8 @@ from patch_sm64_toolchain import patch as patch_sm64_toolchain
 
 ROOT=Path(__file__).resolve().parents[1]
 SM64=ROOT/"vendor"/"sm64-port"
+RUN_STATE=ROOT/"run"/"sm64"
+STATE_FILES=("sm64_save_file.bin","sm64config.txt")
 ROM_CANDIDATES=[
     ROOT/"rom"/"baserom.us.z64",
     ROOT/"baserom.us.z64",
@@ -20,10 +22,32 @@ if not (SM64/"Makefile").is_file():
     raise SystemExit("Run setup-windows.bat first.")
 
 
+def preserve_run_state() -> None:
+    RUN_STATE.mkdir(parents=True, exist_ok=True)
+    build_dir = SM64 / "build" / "us_pc"
+    if build_dir.is_dir():
+        for name in STATE_FILES:
+            src = build_dir / name
+            if src.is_file():
+                shutil.copy2(src, RUN_STATE / name)
+
+
+def restore_run_state() -> None:
+    build_dir = SM64 / "build" / "us_pc"
+    if not build_dir.is_dir():
+        return
+    for name in STATE_FILES:
+        src = RUN_STATE / name
+        if src.is_file():
+            shutil.copy2(src, build_dir / name)
+
+
 def prepare_clean_vendor() -> None:
     """Rebuild the generated host from a pristine sm64-port checkout."""
     if not (SM64 / ".git").is_dir():
         raise SystemExit("vendor/sm64-port is not a Git checkout. Run setup-windows.bat first.")
+
+    preserve_run_state()
 
     # vendor/sm64-port is disposable generated state. Resetting + cleaning here
     # prevents old untracked crossmod_bridge.c/crossmod_ws_api.* files from
@@ -81,6 +105,8 @@ cmd=(
 )
 print("+",bash,"-lc",cmd)
 subprocess.run([str(bash),"-lc",cmd],check=True)
+
+restore_run_state()
 
 build=SM64/"build"/"us_pc"
 exes=sorted(build.glob("*.exe")) if build.is_dir() else []

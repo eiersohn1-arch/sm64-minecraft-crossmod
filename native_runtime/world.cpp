@@ -146,6 +146,8 @@ void nm_world_resolve_vertical(
 }
 
 void nm_world_interact() {
+    if (gNm.player.inventoryOpen) return;
+
     const bool breakPressed = nm_key_pressed(VK_LBUTTON);
     const bool placePressed = nm_key_pressed(VK_RBUTTON);
     if (!breakPressed && !placePressed) return;

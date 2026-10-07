@@ -92,12 +92,13 @@ void nm_sync_player_from_mario(MarioState *m) {
 }
 
 void nm_simulate_player() {
-    const bool forward = nm_key_down('W');
-    const bool backward = nm_key_down('S');
-    const bool left = nm_key_down('A');
-    const bool right = nm_key_down('D');
-    const bool sneak = nm_key_down(VK_SHIFT);
-    const bool sprint = nm_key_down(VK_CONTROL) && forward && !sneak;
+    const bool canMove = !gNm.player.inventoryOpen;
+    const bool forward = canMove && nm_key_down('W');
+    const bool backward = canMove && nm_key_down('S');
+    const bool left = canMove && nm_key_down('A');
+    const bool right = canMove && nm_key_down('D');
+    const bool sneak = canMove && nm_key_down(VK_SHIFT);
+    const bool sprint = canMove && nm_key_down(VK_CONTROL) && forward && !sneak;
 
     float inputForward = (forward ? 1.0f : 0.0f) - (backward ? 1.0f : 0.0f);
     float inputStrafe = (right ? 1.0f : 0.0f) - (left ? 1.0f : 0.0f);
@@ -137,7 +138,7 @@ void nm_simulate_player() {
         if (std::fabs(gNm.player.vz) < 0.02f) gNm.player.vz = 0.0f;
     }
 
-    if (gNm.player.onGround && nm_key_pressed(VK_SPACE)) {
+    if (canMove && gNm.player.onGround && nm_key_pressed(VK_SPACE)) {
         gNm.player.vy = JUMP_VELOCITY;
         gNm.player.onGround = false;
     } else {

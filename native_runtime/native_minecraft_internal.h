@@ -30,6 +30,9 @@ struct NmPlayerState {
     float vz = 0.0f;
     float yaw = 0.0f;
     float pitch = 0.0f;
+    float lastSafeX = 0.0f;
+    float lastSafeY = 0.0f;
+    float lastSafeZ = 0.0f;
 };
 
 struct NmBlock {

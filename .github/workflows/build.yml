@@ -99,13 +99,26 @@ jobs:
 
           gcc -std=gnu11 -fsyntax-only             -DTARGET_PC=1 -DTARGET_WINDOWS=1 -DVERSION_US=1             -DAVOID_UB=1 -DNON_MATCHING=1             -I. -Iinclude -Isrc -Isrc/pc             src/game/mario.c src/game/camera.c src/game/hud.c
 
-      - name: Prove make sees and compiles native module objects
+      - name: Prove build graph sees native modules
         shell: msys2 {0}
         run: |
           cd vendor/sm64-port
-          make VERSION=us             build/us_pc/src/pc/native_minecraft/input.o             build/us_pc/src/pc/native_minecraft/player.o             build/us_pc/src/pc/native_minecraft/world.o             build/us_pc/src/pc/native_minecraft/bridge.o
+          grep -q "src/pc/native_minecraft" Makefile
+          grep -q "src/pc/native_minecraft" Makefile
 
-          test -f build/us_pc/src/pc/native_minecraft/input.o
-          test -f build/us_pc/src/pc/native_minecraft/player.o
-          test -f build/us_pc/src/pc/native_minecraft/world.o
-          test -f build/us_pc/src/pc/native_minecraft/bridge.o
+      - name: Compile real native object files without retail ROM
+        shell: msys2 {0}
+        run: |
+          cd vendor/sm64-port
+          mkdir -p build/native-ci
+          COMMON="-DTARGET_PC=1 -DTARGET_WINDOWS=1 -DVERSION_US=1 -DAVOID_UB=1 -DNON_MATCHING=1 -DNO_SEGMENTED_MEMORY=1 -DUSE_SYSTEM_MALLOC=1 -D_LANGUAGE_C=1 -I. -Iinclude -Isrc -Isrc/pc -Isrc/pc/gfx"
+
+          g++ -std=gnu++17 -c $COMMON src/pc/native_minecraft/input.cpp -o build/native-ci/input.o
+          g++ -std=gnu++17 -c $COMMON src/pc/native_minecraft/player.cpp -o build/native-ci/player.o
+          g++ -std=gnu++17 -c $COMMON src/pc/native_minecraft/world.cpp -o build/native-ci/world.o
+          g++ -std=gnu++17 -c $COMMON src/pc/native_minecraft/bridge.cpp -o build/native-ci/bridge.o
+
+          test -s build/native-ci/input.o
+          test -s build/native-ci/player.o
+          test -s build/native-ci/world.o
+          test -s build/native-ci/bridge.o

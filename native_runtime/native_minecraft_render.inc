@@ -451,7 +451,7 @@ static void nm_draw_native_vertices(
 }
 
 static void nm_render_native_minecraft() {
-    if (!native_minecraft_active() || !nm_init_pipeline()) return;
+    if (!native_minecraft_has_authority() || !nm_init_pipeline()) return;
 
     native_minecraft_get_render_state(
         &nm_px,&nm_py,&nm_pz,&nm_yaw,&nm_pitch,

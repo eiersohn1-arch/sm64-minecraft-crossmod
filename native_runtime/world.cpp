@@ -115,7 +115,7 @@ bool nm_world_player_intersects(float x, float y, float z) {
 }
 
 void nm_world_resolve_vertical(
-    float x, float oldY, float &newY, float &vy, bool &onGround
+    float x, float z, float oldY, float &newY, float &vy, bool &onGround
 ) {
     for (const NmBlock &b : nm_current_blocks_const()) {
         const float bx0 = b.x * NM_BLOCK;
@@ -124,8 +124,8 @@ void nm_world_resolve_vertical(
         const float bz1 = bz0 + NM_BLOCK;
 
         if (x + NM_PLAYER_RADIUS <= bx0 || x - NM_PLAYER_RADIUS >= bx1
-            || gNm.player.z + NM_PLAYER_RADIUS <= bz0
-            || gNm.player.z - NM_PLAYER_RADIUS >= bz1) {
+            || z + NM_PLAYER_RADIUS <= bz0
+            || z - NM_PLAYER_RADIUS >= bz1) {
             continue;
         }
 

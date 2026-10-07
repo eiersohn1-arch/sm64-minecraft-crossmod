@@ -331,6 +331,7 @@ client_input = CLIENT / "ClientInput.java"
 replace_once(
     client_input,
     'import net.minecraft.client.Minecraft;\n',
+    'import net.minecraft.client.CameraType;\n'
     'import net.minecraft.client.Minecraft;\n'
     'import net.minecraft.client.input.MouseButtonEvent;\n'
     'import net.minecraft.client.input.MouseButtonInfo;\n',
@@ -348,6 +349,15 @@ replace_once(
     client_input,
     '		switch (m.get("t").getAsString()) {\n			case "key" -> {',
     '		switch (m.get("t").getAsString()) {\n'
+    '			case "perspective" -> {\n'
+    '				CameraType current = minecraft.options.getCameraType();\n'
+    '				CameraType next = current == CameraType.FIRST_PERSON\n'
+    '					? CameraType.THIRD_PERSON_BACK\n'
+    '					: current == CameraType.THIRD_PERSON_BACK\n'
+    '						? CameraType.THIRD_PERSON_FRONT\n'
+    '						: CameraType.FIRST_PERSON;\n'
+    '				minecraft.options.setCameraType(next);\n'
+    '			}\n'
     '			case "pointer" -> {\n'
     '				double oldX = hostPointerX;\n'
     '				double oldY = hostPointerY;\n'
@@ -466,10 +476,7 @@ replace_once(
     'if (minecraft.options.getCameraType() != CameraType.THIRD_PERSON_BACK) {\n'
     '\t\t\t\tminecraft.options.setCameraType(CameraType.THIRD_PERSON_BACK);\n'
     '\t\t\t}',
-    'CameraType driveCamera = p.firstPerson() ? CameraType.FIRST_PERSON : CameraType.THIRD_PERSON_BACK;\n'
-    '\t\t\tif (minecraft.options.getCameraType() != driveCamera) {\n'
-    '\t\t\t\tminecraft.options.setCameraType(driveCamera);\n'
-    '\t\t\t}',
+    '// SM64: vanilla Minecraft F5 perspective remains authoritative while drive mode is active.',
 )
 replace_once(
     player_sync,
@@ -560,6 +567,49 @@ for old, new in starter_replacements.items():
     guest_text = guest_text.replace(old, new, 1)
 passthrough_client.write_text(guest_text, encoding="utf-8")
 
+
+
+# Tobyn/crossover-style compositing requires the Minecraft world transform to
+# stay registered to the host frame. View bobbing or hurt tilt would move only
+# Minecraft pixels and make Steve/blocks visibly slide over SM64.
+game_renderer = CLIENT / "mixin" / "GameRendererMixin.java"
+replace_once(
+    game_renderer,
+    'import com.mojang.blaze3d.pipeline.RenderTarget;\n',
+    'import com.mojang.blaze3d.pipeline.RenderTarget;\n'
+    'import com.mojang.blaze3d.vertex.PoseStack;\n'
+    'import net.minecraft.client.renderer.state.level.CameraRenderState;\n',
+)
+game_renderer_text = game_renderer.read_text(encoding="utf-8")
+if "passthrough$noViewBob" not in game_renderer_text:
+    insert_at = game_renderer_text.rfind("\n}")
+    if insert_at < 0:
+        raise RuntimeError("GameRendererMixin closing brace not found")
+    game_renderer_text = game_renderer_text[:insert_at] + r"""
+
+	@Inject(
+		method = "bobView(Lnet/minecraft/client/renderer/state/level/CameraRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;)V",
+		at = @At("HEAD"),
+		cancellable = true
+	)
+	private void passthrough$noViewBob(final CameraRenderState cameraState, final PoseStack poseStack, final CallbackInfo ci) {
+		if (Passthrough.active) {
+			ci.cancel();
+		}
+	}
+
+	@Inject(
+		method = "bobHurt(Lnet/minecraft/client/renderer/state/level/CameraRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;)V",
+		at = @At("HEAD"),
+		cancellable = true
+	)
+	private void passthrough$noHurtTilt(final CameraRenderState cameraState, final PoseStack poseStack, final CallbackInfo ci) {
+		if (Passthrough.active) {
+			ci.cancel();
+		}
+	}
+""" + game_renderer_text[insert_at:]
+    game_renderer.write_text(game_renderer_text, encoding="utf-8")
 
 
 # 5) The guest remains Universal Modder's real Minecraft runtime; the SM64

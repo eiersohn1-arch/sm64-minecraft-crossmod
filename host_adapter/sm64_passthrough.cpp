@@ -335,7 +335,9 @@ void publish_input() {
     }
 
     if (take_pressed(VK_F5)) {
-        g_firstPerson = !g_firstPerson;
+        // Let Minecraft perform its real F5 cycle (first -> third back ->
+        // third front). The resulting camera pose comes back through mccam.
+        g_ws.send("{\"t\":\"perspective\"}");
     }
 
     if (take_pressed('E')) {

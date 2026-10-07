@@ -94,6 +94,7 @@ bool g_semanticAttackPrev = false;
 bool g_semanticUsePrev = false;
 bool g_semanticSneakPrev = false;
 int g_driveDelayFrames = 0;
+unsigned int g_surfaceSnapshotTick = 0;
 
 struct McPose {
     bool valid = false;
@@ -460,8 +461,18 @@ void reset_collision_if_needed() {
 void publish_collision() {
     if (!gMarioState || !gCurrentArea) return;
 
+    // Full nearby snapshots are deliberately repeated. Unlike GTA, SM64 has
+    // moving platforms and dynamic collision, so a column sampled once is not
+    // authoritative forever. Four host frames keeps the average probe cost
+    // close to the old 160-probe budget while allowing platforms to move.
     constexpr int RADIUS = 16;
-    constexpr int BUDGET = 160;
+    constexpr unsigned int SNAPSHOT_INTERVAL = 4;
+
+    ++g_surfaceSnapshotTick;
+    if (!g_spawnSyncPending
+        && (g_surfaceSnapshotTick % SNAPSHOT_INTERVAL) != 0) {
+        return;
+    }
 
     const int cx = static_cast<int>(
         std::floor(gMarioState->pos[0] / SCALE));
@@ -470,24 +481,30 @@ void publish_collision() {
 
     const float probeY = gMarioState->pos[1];
     std::string cols;
-    int probes = 0;
+    bool sentAny = false;
 
-    for (int dz = -RADIUS; dz <= RADIUS && probes < BUDGET; ++dz) {
-        for (int dx = -RADIUS; dx <= RADIUS && probes < BUDGET; ++dx) {
+    auto flush_columns = [&]() {
+        if (cols.empty()) return;
+        g_ws.send("{\"t\":\"ground\",\"c\":[" + cols + "]}");
+        cols.clear();
+        sentAny = true;
+    };
+
+    g_ws.send("{\"t\":\"surfacebegin\"}");
+
+    for (int dz = -RADIUS; dz <= RADIUS; ++dz) {
+        for (int dx = -RADIUS; dx <= RADIUS; ++dx) {
             if (dx * dx + dz * dz > RADIUS * RADIUS) continue;
 
             const int x = cx + dx + static_cast<int>(g_worldOffsetX);
             const int z = cz + dz + static_cast<int>(g_worldOffsetZ);
-            const auto key = column_key(x, z);
-            if (g_collisionSampled.count(key)) continue;
-
-            ++probes;
-            g_collisionSampled.insert(key);
 
             const float sx =
-                (static_cast<float>(x) + 0.5f - static_cast<float>(g_worldOffsetX)) * SCALE;
+                (static_cast<float>(x) + 0.5f
+                    - static_cast<float>(g_worldOffsetX)) * SCALE;
             const float sz =
-                -(static_cast<float>(z) + 0.5f - static_cast<float>(g_worldOffsetZ)) * SCALE;
+                -(static_cast<float>(z) + 0.5f
+                    - static_cast<float>(g_worldOffsetZ)) * SCALE;
 
             struct Surface *floor = nullptr;
             const float floorY = find_floor(
@@ -495,17 +512,14 @@ void publish_collision() {
             );
 
             int floorTop = 0;
-            bool haveFloor = floor != nullptr
-                && floorY > FLOOR_LOWER_LIMIT;
+            const bool haveFloor =
+                floor != nullptr && floorY > FLOOR_LOWER_LIMIT;
 
             if (haveFloor) {
                 floorTop = static_cast<int>(
                     std::floor(floorY / SCALE + MC_Y0 + 0.5f)
                 ) - 1;
-                append_column(
-                    cols, x, z,
-                    floorTop - 3, floorTop
-                );
+                append_column(cols, x, z, floorTop - 3, floorTop);
             }
 
             struct Surface *ceil = nullptr;
@@ -519,10 +533,7 @@ void publish_collision() {
                 const int ceilBlock = static_cast<int>(
                     std::floor(ceilY / SCALE + MC_Y0)
                 );
-                append_column(
-                    cols, x, z,
-                    ceilBlock, ceilBlock + 1
-                );
+                append_column(cols, x, z, ceilBlock, ceilBlock + 1);
             }
 
             WallCollisionData wall{};
@@ -539,19 +550,25 @@ void publish_collision() {
                     floorTop + 1, floorTop + 4
                 );
             }
+
+            // Keep WebSocket messages comfortably small while the snapshot
+            // itself stays atomic from the guest's point of view.
+            if (cols.size() > 6000) {
+                flush_columns();
+            }
         }
     }
 
-    if (!cols.empty()) {
-        g_ws.send(
-            "{\"t\":\"ground\",\"c\":[" + cols + "]}"
-        );
-    }
+    flush_columns();
+    g_ws.send("{\"t\":\"surfaceend\"}");
 
-    if (g_spawnSyncPending && !cols.empty()) {
-        const double x = gMarioState->pos[0] / SCALE + g_worldOffsetX;
-        const double y = gMarioState->pos[1] / SCALE + MC_Y0 + 0.12;
-        const double z = -gMarioState->pos[2] / SCALE + g_worldOffsetZ;
+    if (g_spawnSyncPending && sentAny) {
+        const double x =
+            gMarioState->pos[0] / SCALE + g_worldOffsetX;
+        const double y =
+            gMarioState->pos[1] / SCALE + MC_Y0 + 0.12;
+        const double z =
+            -gMarioState->pos[2] / SCALE + g_worldOffsetZ;
 
         char command[192];
         std::snprintf(

@@ -51,6 +51,12 @@ std::array<std::atomic<unsigned char>, 256> g_pressed{};
 std::atomic<int> g_rawMouseX{0};
 std::atomic<int> g_rawMouseY{0};
 std::atomic<int> g_wheel{0};
+std::atomic<int> g_pointerX{0};
+std::atomic<int> g_pointerY{0};
+std::atomic<int> g_viewWidth{640};
+std::atomic<int> g_viewHeight{480};
+std::atomic<bool> g_pointerDirty{true};
+std::atomic<bool> g_viewDirty{true};
 std::atomic<bool> g_focused{true};
 
 bool g_attack = false;
@@ -59,6 +65,9 @@ bool g_inventory = false;
 bool g_drop = false;
 bool g_swap = false;
 bool g_escape = false;
+bool g_uiLeft = false;
+bool g_uiRight = false;
+bool g_uiMiddle = false;
 bool g_firstPerson = false;
 bool g_inventoryScreen = false;
 bool g_spawnSyncPending = false;
@@ -132,6 +141,33 @@ void poll_guest_messages() {
     }
 }
 
+void send_ui_button(int button, int vk, bool &previous) {
+    const bool now = key_down(vk);
+    if (now == previous) return;
+
+    previous = now;
+
+    const int w = std::max(1, g_viewWidth.load(std::memory_order_relaxed));
+    const int h = std::max(1, g_viewHeight.load(std::memory_order_relaxed));
+    const double nx = std::clamp(
+        static_cast<double>(g_pointerX.load(std::memory_order_relaxed)) / w,
+        0.0, 1.0
+    );
+    const double ny = std::clamp(
+        static_cast<double>(g_pointerY.load(std::memory_order_relaxed)) / h,
+        0.0, 1.0
+    );
+
+    char msg[160];
+    std::snprintf(
+        msg, sizeof(msg),
+        "{\"t\":\"uibutton\",\"b\":%d,\"down\":%s,"
+        "\"x\":%.6f,\"y\":%.6f}",
+        button, now ? "true" : "false", nx, ny
+    );
+    g_ws.send(msg);
+}
+
 void send_key(const char *name, int vk, bool &previous) {
     const bool now = key_down(vk);
     if (now == previous) return;
@@ -172,6 +208,43 @@ void publish_input() {
     send_key("drop", 'Q', g_drop);
     send_key("swap", 'F', g_swap);
     send_key("escape", VK_ESCAPE, g_escape);
+
+    // Screen-space clicks are separate from gameplay attack/use so real
+    // Minecraft inventory/container screens remain fully interactive.
+    send_ui_button(1, VK_LBUTTON, g_uiLeft);
+    send_ui_button(3, VK_RBUTTON, g_uiRight);
+    send_ui_button(2, VK_MBUTTON, g_uiMiddle);
+
+    if (g_viewDirty.exchange(false, std::memory_order_relaxed)) {
+        const int w = std::max(320, g_viewWidth.load(std::memory_order_relaxed));
+        const int h = std::max(240, g_viewHeight.load(std::memory_order_relaxed));
+        char view[96];
+        std::snprintf(
+            view, sizeof(view),
+            "{\"t\":\"view\",\"w\":%d,\"h\":%d}", w, h
+        );
+        g_ws.send(view);
+    }
+
+    if (g_pointerDirty.exchange(false, std::memory_order_relaxed)) {
+        const int w = std::max(1, g_viewWidth.load(std::memory_order_relaxed));
+        const int h = std::max(1, g_viewHeight.load(std::memory_order_relaxed));
+        const double nx = std::clamp(
+            static_cast<double>(g_pointerX.load(std::memory_order_relaxed)) / w,
+            0.0, 1.0
+        );
+        const double ny = std::clamp(
+            static_cast<double>(g_pointerY.load(std::memory_order_relaxed)) / h,
+            0.0, 1.0
+        );
+        char pointer[112];
+        std::snprintf(
+            pointer, sizeof(pointer),
+            "{\"t\":\"pointer\",\"x\":%.6f,\"y\":%.6f}",
+            nx, ny
+        );
+        g_ws.send(pointer);
+    }
 
     for (int i = 0; i < 9; ++i) {
         if (take_pressed('1' + i)) {
@@ -410,6 +483,25 @@ void um_passthrough_scroll(int delta) {
     g_wheel.fetch_add(delta, std::memory_order_relaxed);
 }
 
+void um_passthrough_pointer(int x, int y, int width, int height) {
+    if (width <= 0 || height <= 0) return;
+    g_pointerX.store(x, std::memory_order_relaxed);
+    g_pointerY.store(y, std::memory_order_relaxed);
+    g_viewWidth.store(width, std::memory_order_relaxed);
+    g_viewHeight.store(height, std::memory_order_relaxed);
+    g_pointerDirty.store(true, std::memory_order_relaxed);
+}
+
+void um_passthrough_view(int width, int height) {
+    if (width < 320 || height < 240) return;
+    const int oldW = g_viewWidth.exchange(width, std::memory_order_relaxed);
+    const int oldH = g_viewHeight.exchange(height, std::memory_order_relaxed);
+    if (oldW != width || oldH != height) {
+        g_viewDirty.store(true, std::memory_order_relaxed);
+        g_pointerDirty.store(true, std::memory_order_relaxed);
+    }
+}
+
 void um_passthrough_focus_changed(int focused) {
     g_focused.store(focused != 0, std::memory_order_relaxed);
     if (focused) return;
@@ -421,6 +513,7 @@ void um_passthrough_focus_changed(int focused) {
     g_rawMouseX.store(0, std::memory_order_relaxed);
     g_rawMouseY.store(0, std::memory_order_relaxed);
     g_wheel.store(0, std::memory_order_relaxed);
+    g_pointerDirty.store(true, std::memory_order_relaxed);
 }
 
 int um_passthrough_pointer_locked(void) {

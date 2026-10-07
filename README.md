@@ -1,373 +1,126 @@
-# SM64 × Minecraft Crossmod
+# SM64 × Minecraft — Universal Modder clean rebuild
 
-## Ziel
+This branch is a clean rebuild around **Universal Modder `mashup-mods` Pattern 2 (passthrough)**. None of the old crossmod bridge/HUD/terrain code is reused.
 
-Das Projekt ist **kein Minecraft-Block-Nachbau von Super Mario 64**.
+## Current milestone: first real SM64 host
 
-Die sichtbare Welt bleibt der echte Super-Mario-64-PC-Port mit originalen
-Leveln, Texturen, Gegnern, Musik, Missionen, Warps und allen 120 Sternen.
-Minecraft 1.21.1 läuft gleichzeitig als echter Fabric-Client + integrierter
-Server im Hintergrund und liefert das Minecraft-Spielsystem in diese Welt.
-
-Referenzarchitektur:
+The path is now:
 
 ```
-git clone https://github.com/rehan-remade/universal-modder
+real SM64 PC port (Direct3D 11)
+       |
+       |  Universal Modder localhost WebSocket
+       v
+real Minecraft 26.3 + Fabric guest
+       |
+       |  Local\MCPassthroughFrame
+       v
+SM64 D3D11 backbuffer
 ```
 
-Verwendetes Referenzbeispiel:
-
-`examples/minecraft-gta5-passthrough`
-
-## Ein sichtbares Spiel
-
-`sm64.us.exe` ist das einzige sichtbare und fokussierte Spielfenster.
-
-Minecraft wird nach dem Weltbeitritt off-screen verschoben und läuft weiter als
-Hintergrund-Engine. Es wird nicht minimiert, damit OpenGL-Rendering und der
-Shared-Memory-Export weiterlaufen.
-
-SM64 rendert das Endbild mit Direct3D 11:
-
-```
-echtes SM64 Color + Depth
-          +
-Minecraft Color + Depth
-          +
-Minecraft Hand/HUD/GUI
-          =
-ein sichtbares SM64-Fenster
-```
-
-## Originales SM64 bleibt vollständig
-
-SM64 bleibt Autorität für:
-
-- Peach's Castle
-- alle Hauptkurse und Secret Stages
-- 120 Sterne
-- Missionen/Akte
-- Red Coins und 100-Coin-Stars
-- Bowser-Stages, Schlüssel und Grand Star
-- Türen, Gemälde und Warps
-- Kanonen und Caps
-- originale Gegner/Bosse
-- Wasser, Treibsand, Rutschen, Moving Platforms
-- originale SM64-Levelgeometrie und Missions-/Objektlogik
-- Tod/Respawn/Leben
-- Save-Daten und Progression
-- Musik und Sounds
-
-Mario bleibt intern als unsichtbarer originaler SM64-Spielkörper erhalten.
-Steve ist die sichtbare Minecraft-Darstellung desselben Spielers.
-
-## Echtes Minecraft-System
-
-Minecraft läuft nicht nur als HUD.
-
-Der aktuelle Hybrid benutzt echte Minecraft-Systeme für:
-
-- Steve/Alex/custom Skin
-- First-Person-Hand
-- gehaltene Items
-- Third Person hinten und vorne
-- Hotbar
-- echtes Inventar
-- normale Minecraft-Screens und Texteingabe
-- Chat
-- echte ItemStacks
-- BlockStates
-- BlockEntities
-- Blockplatzierung
-- Mining
-- Tools/Waffen
-- Offhand
-- Droppen
-- Essen/Hunger
-- Minecraft-Schaden/Heilung
-- Minecraft-Mobs und Projektile im Overlay-Level
-- normale Client-/Integrated-Server-Logik
-
-Die Minecraft-Welt dafür ist die leere Dimension:
-
-`sm64cross:sm64_overlay`
-
-Sie enthält keine normale Overworld-Landschaft. Der originale SM64-Level bleibt
-die sichtbare Umgebung.
-
-## First Person / Third Person
-
-Standard ist jetzt **First Person**.
-
-`F5` schaltet wie Minecraft:
-
-1. First Person
-2. Third Person hinten
-3. Third Person vorne
-4. zurück zu First Person
-
-In First Person wird der echte Minecraft-`ItemInHandRenderer` verwendet.
-Dadurch kommen Steve-Hand und das ausgewählte Item direkt aus Minecraft.
-
-In Third Person wird der vollständige lokale Minecraft-Spieler mit Skin und
-gehaltenem Item gerendert.
-
-Die Third-Person-Kamera wird im SM64-Host gegen echte SM64-Wände, Böden und
-Decken geprüft, damit sie nicht einfach durch Levelgeometrie clippt.
-
-SM64-Cutscenes werden nicht ersetzt. Star-Sequenzen, Türen, Bowser-Szenen und
-andere originale Cutscenes behalten ihre native Kamera.
-
-## Steuerung im sichtbaren SM64-Fenster
-
-- Maus = echte Minecraft-Maussteuerung inklusive Minecraft-Sensitivity/Invert-Y
-- WASD = echte Minecraft-Bewegung
-- Leertaste = echter Minecraft-Sprung
-- Linksklick = Minecraft Angriff / Mining
-- Rechtsklick = Minecraft Benutzen / Block platzieren
-- Shift = echtes Minecraft-Schleichen
-- Ctrl = echtes Minecraft-Sprinten
-- 1..9 = Minecraft-Hotbar
-- E = Inventar / Container schließen
-- Q = Item droppen
-- Ctrl+Q = Stack droppen
-- F = Offhand tauschen
-- F5 = Perspektive wechseln
-- T = Minecraft-Chat
-- Slash-Taste = Command-Chat
-- Escape = aktiven Minecraft-Screen schließen
-- V = direkte originale SM64-B-Aktion für Spezialinteraktionen
-- P = SM64 Start/Pause
-- I/J/K/L = SM64 C-Tasten
-- O/U = SM64 R/L
-
-Wenn ein Minecraft-Screen offen ist, werden Maus und Tastatur aus dem
-SM64-Fenster an diesen echten Minecraft-Screen weitergereicht. Text wird unter
-Windows mit `ToUnicode` erzeugt, damit die aktive Tastaturbelegung verwendet
-wird.
-
-## Echte Minecraft-Blöcke auf SM64
-
-Beim Platzieren raycastet SM64 vom Fadenkreuz gegen seine echten
-Dreiecks-Surfaces:
-
-- Floor
-- Ceiling
-- Wall
-
-Der Trefferpunkt und die Surface-Normale gehen an Minecraft.
-Minecraft führt anschließend die normale `MultiPlayerGameMode.useItemOn`-
-Logik mit dem echten ausgewählten Item aus.
-
-Die platzierten Blöcke sind echte Minecraft-Blöcke im integrierten Server:
-keine SM64-Imitation und keine Fake-Meshes.
-
-Mining benutzt ebenfalls Minecrafts normale Destroy-Block-Logik.
-
-## Zwei-Wege-Kollision
-
-### Minecraft -> SM64
-
-Nahe Minecraft-`VoxelShape`-CollisionBoxes werden an SM64 geschickt.
-
-Das gilt auch für Formen wie:
-
-- Slabs
-- Treppen
-- Fences
-- andere nicht volle Blockformen
-
-SM64 baut daraus native dynamische Collision-Surfaces. Der originale
-SM64-Spielkörper kann dadurch auf Minecraft-Blöcken stehen und gegen sie
-laufen.
-
-### SM64 -> Minecraft
-
-Minecraft bekommt lokal um den Spieler eine unsichtbare dynamische
-`VoxelShape`-Kollisionsschicht direkt aus der echten SM64-Kollision:
-
-- Böden werden pro Block in 2x2 Teilflächen mit ihrer tatsächlichen Höhe
-  gesampelt, sodass Schrägen nicht mehr auf volle Würfel gerundet werden;
-- Wände werden als dünne Kollisionsflächen auf der tatsächlichen
-  SM64-Wandebene gespiegelt;
-- niedrige Decken behalten ihre genaue Höhe.
-
-Diese Proxy-Blöcke haben **kein sichtbares Modell und keine Auswahlbox**.
-Minecraft berechnet darauf trotzdem seine normale Bewegung, Gravitation,
-Sprint-/Sneak-/Sprungphysik sowie Entity-Kollision. Echte vom Spieler gesetzte
-Minecraft-Blöcke haben immer Vorrang.
-
-Der SM64-Level wird weiterhin **nicht optisch in Minecraft-Blöcke
-umgewandelt**; nur seine Physik fließt in Minecraft ein.
-
-## Gemeinsames Health-/Hunger-System
-
-SM64 bleibt Autorität für Tod und Respawn, damit originale Course-/Life-Logik
-erhalten bleibt.
-
-Minecraft-Schaden wird aber zurück in Marios echtes Health-System übertragen:
-
-- Minecraft verarbeitet zuerst DamageSource, Rüstung, Verzauberungen und Effekte
-- die tatsächliche Health-Differenz wird an SM64 geschickt
-- Schaden wird zu SM64-`hurtCounter`
-- Heilung wird zu SM64-`healCounter`
-- SM64 sendet den resultierenden Lebensstand wieder an Minecraft
-
-Minecraft Food/Saturation wird nicht jeden Tick auf voll gesetzt.
-Weil Minecraft selbst die Bewegung simuliert, entstehen Sprint-, Sprung- und
-Bewegungs-Exhaustion über die normalen Vanilla-Systeme.
-
-## Player-/Aim-Sync
-
-Minecraft-Client und integrierter Server besitzen die laufende
-Spielerposition. SM64 übernimmt diese Position nur für seinen unsichtbaren
-Mario-Proxy, damit Sterne, Türen, Warps, Gegner und Missionen weiter reagieren.
-
-Das ist wichtig für:
-
-- Vanilla Reach Checks
-- Container
-- Projektile
-- Entity Interaction
-- Item Use
-- Mobs
-- Block Interaction
-
-Körper- und Blickrichtung sind getrennt:
-
-- Steve-Körper = Minecraft-Bewegung
-- Kopf/Aim = Minecraft-Yaw/Pitch; die sichtbare SM64-Kamera folgt diesem Aim
-
-Bögen, Tridents und andere gerichtete Minecraft-Aktionen zielen dadurch nach
-der Kamera statt nur in Marios Laufrichtung.
-
-## Universal-Modder-Transport
-
-### WebSocket
-
-`127.0.0.1:25599`
-
-Für kleine Zustände und Events:
-
-- Kamera
-- Spielerpose
-- SM64-Progression
-- Minecraft Item/Slot
-- Input
-- GUI
-- Block-Collision
-- Health
-- lokale Terrain-Proxy-Daten
-
-Die Windows-`ws.h`/`ws.cpp` werden beim Setup direkt aus
-`rehan-remade/universal-modder` übernommen.
-
-### Shared Memory
-
-`Local\MCPassthroughFrame`
-
-MCPT-Ring mit drei Slots für:
-
-- Minecraft world RGBA8
-- Minecraft depth float32
-- transparentes Minecraft HUD/Hand/GUI RGBA8
-- Kamera/FOV/Pose pro Frame
-
-Minecraft nutzt einen asynchronen OpenGL-PBO-Ring mit GPU-Fences. Der
-Renderthread wartet nicht synchron auf jeden Readback.
-
-## D3D11 Depth-Compositor
-
-SM64 mischt Minecraft direkt in seinen nativen D3D11-Frame.
-
-Dadurch können unter anderem:
-
-- Minecraft-Blöcke in der echten SM64-Welt stehen
-- Steve durch echte SM64-Geometrie verdeckt werden
-- Minecraft-HUD/Hand screen-space bleiben
-- Minecraft-Sky/Vanilla-Terrain aus dem finalen Bild verschwinden
-
-Zusätzlich läuft 6-DoF Depth-Reprojection nach dem Universal-Modder-Prinzip, um
-das Alter eines bereits fertig exportierten Minecraft-Frames gegen die aktuelle
-SM64-Kamera auszugleichen.
-
-## Whole-Game-Schutz
-
-`tools/verify_whole_game.py` prüft bei jedem CI-Build, dass originale
-SM64-Level-/Progressionsdateien nicht versehentlich durch den Hybrid ersetzt
-werden.
-
-Unter anderem geschützt:
-
-- 15 Hauptkurse
-- Bonus-/End-Kurse
-- 33 originale Level-Verzeichnisse
-- Level Scripts
-- Star Select
-- Save-System
-- Progression
-
-## Anforderungen
-
-- Windows
-- JDK 21
-- Git
+The Minecraft guest is copied **verbatim** from Universal Modder's
+`examples/minecraft-gta5-passthrough/mc`.
+
+The SM64 adapter:
+- uses Universal Modder's `ws.cpp/ws.h` verbatim;
+- sends the real SM64 camera and Mario position with the same `cam` protocol;
+- samples native SM64 `find_floor()` collision and sends `ground` columns;
+- forwards left/right click, E, Q, F and hotbar 1-9 using the existing UM input messages;
+- reads the UM `MCPT` shared-memory ring;
+- composites Minecraft world colour plus the separate hand/HUD/GUI layer into SM64's D3D11 frame.
+
+This is deliberately the **small vertical slice Universal Modder recommends**. Minecraft follows the SM64 host in this milestone. Depth occlusion, Minecraft-authoritative WASD/mouse movement, walls/ceilings and block collision back into SM64 come after this slice is proven on the real PC.
+
+## Requirements
+
+- Windows 10/11
+- JDK 25
 - Python 3
-- MSYS2 MinGW64
-- `git`, `make`, `python3`
-- `mingw-w64-x86_64-gcc`
-- SDL2/GLEW Development-Pakete
+- Git
+- MSYS2 installed at `C:\msys64`
+- MinGW64 GCC toolchain
+- your own clean USA `baserom.us.z64`
 
-Eigene saubere SM64-USA-ROM:
+Put the ROM in either:
 
-`rom\baserom.us.z64`
+```
+rom\baserom.us.z64
+```
 
-SHA-1:
+or the repository root as `baserom.us.z64`.
 
-`9bef1128717f958171a4afac3ed78ee2bb4e86ce`
+## Windows: one-click flow
 
-## Bauen
+After pulling this branch, the recommended Windows path is now simply:
 
 ```bat
-git pull
+windows-all.bat
+```
+
+That one launcher runs the unified `windows-crossmod.ps1` controller. It:
+
+1. checks Git, Python, **JDK 25**, MSYS2 and the ROM;
+2. installs/validates the required MSYS2 MinGW packages;
+3. refreshes Universal Modder and a clean `sm64-port`;
+4. recreates the Minecraft guest directly from Universal Modder;
+5. removes all stale/generated legacy crossmod files;
+6. patches old `sm64-port` build tools for current MinGW;
+7. rebuilds the generated SM64 host from a pristine checkout;
+8. launches Minecraft;
+9. waits for the Universal Modder WebSocket on `127.0.0.1:25599`;
+10. only then starts the SM64 host.
+
+Your own clean USA ROM must be at either:
+
+```
+rom\baserom.us.z64
+```
+
+or:
+
+```
+baserom.us.z64
+```
+
+Useful individual launchers still exist, but they all route through the same PowerShell controller:
+
+```bat
+windows-doctor.bat
 setup-windows.bat
+build-sm64.bat
+start-guest.bat
+start-sm64.bat
+start-crossmod.bat
 ```
 
-## Starten
+For normal use, prefer `windows-all.bat` for a fresh build or `start-crossmod.bat` after a successful build.
 
-```bat
-start-test.bat
-```
+## Minecraft controls in the SM64 window
 
-Minecraft ist zuerst kurz sichtbar. Eine Welt öffnen. Sobald Host + Guest
-verbunden sind, wird Minecraft off-screen verschoben und SM64 übernimmt
-Fenster, Kamera und Eingabe.
+When the crossmod is connected, the **SM64 window is the active game window**, but these inputs are forwarded into the real Minecraft player:
 
-## Sicherungs-Branches
+- `W A S D`: vanilla Minecraft movement
+- `Space`: jump
+- `Left Shift`: sneak
+- `Left Ctrl`: sprint
+- mouse: Minecraft look
+- left click: attack / break
+- right click: use / place
+- `1-9`: hotbar
+- `E`: inventory
+- `Q`: drop
+- `F`: swap off-hand
+- `F5`: first/third person
 
-- `legacy-block-prototype` – alter Minecraft-Block-Nachbau
-- `legacy-visible-minecraft-overlay` – alter sichtbarer Zwei-Fenster-Modus
-- `working-sm64-host-single-window` – erster funktionierender Single-Window-Stand
-- `working-blocks-single-window` – funktionierender Single-Window-Stand vor
-  dem großen Full-Minecraft-Gameplay-Umbau
+Minecraft now owns normal locomotion and gravity.  SM64's Mario is kept invisible and is snapped to Steve's reported Minecraft pose so SM64 stars, triggers, doors and progression can continue to use Mario as an interaction proxy.
 
-## Aktueller technischer Stand
+## Next order
 
-Automatisch geprüft werden:
+1. prove SM64 + Minecraft world/HUD are visible together;
+2. add SM64-vs-Minecraft depth occlusion;
+3. add raw Minecraft mouse/WASD authority;
+4. add walls, ceilings and moving SM64 collision;
+5. send placed Minecraft block collision/events back into SM64;
+6. add latency reprojection.
 
-- Fabric Build
-- SM64-C-Bridge gegen aktuelle Upstream-Headers
-- gepatchte SM64-Core-Collision
-- D3D11-Compositor
-- eingebetteter HLSL-Shader via `D3DCompile`
-- Whole-Game-Integrität
-
-Ein grüner CI-Build ersetzt den echten Lauf auf dem Ziel-PC nicht. Besonders
-Treiberverhalten, Kamera-/Depth-Toleranzen und die große Menge möglicher
-Minecraft-Items/BlockEntities müssen zusätzlich im laufenden Hybrid getestet
-werden.
-
-Der Ansatz versucht nicht, die komplette Java Edition in die C-Dateien des
-SM64-Ports zu kopieren. Stattdessen laufen die echten Minecraft-Client- und
-Server-Systeme parallel und werden so tief in den sichtbaren SM64-Host
-eingebunden, dass der Benutzer nur ein gemeinsames Spiel sieht.
+That order follows Universal Modder's rule: **cube/pose → rendering → collision → real gameplay**.

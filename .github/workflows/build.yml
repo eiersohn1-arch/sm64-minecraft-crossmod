@@ -1,147 +1,74 @@
-name: build
+name: Universal Modder clean rebuild
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [universal-modder-clean-rebuild]
   pull_request:
 
 jobs:
-  build:
+  architecture:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up JDK 21
+      - name: Set up Java 25
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: "25"
 
-      - name: Validate passthrough Python tooling
-        run: python -m py_compile tools/prepare_passthrough.py tools/verify_whole_game.py
+      - name: Validate clean bootstrap tooling
+        run: python -m py_compile tools/bootstrap_um.py tools/sync_um_reference.py tools/patch_guest_for_sm64.py tools/generate_sm64_host.py tools/build_sm64.py tools/patch_sm64_toolchain.py tools/verify_clean_rebuild.py
 
-      - name: Validate passthrough bridge sources
+      - name: Reject legacy crossmod implementation
+        shell: bash
         run: |
-          test -f sm64-host/crossmod_bridge.c
-          test -f sm64-host/crossmod_bridge.h
-          grep -q "crossmod_bridge_apply_controller" sm64-host/crossmod_bridge.c
-          grep -q "crossmod_ws_start" sm64-host/crossmod_ws_api.cpp
-          grep -q "MCPassthroughFrame" src/client/java/dev/eiersohn/sm64cross/client/render/Sm64FrameExporter.java
-          grep -q "WebSocketServer" src/client/java/dev/eiersohn/sm64cross/client/bridge/HostLink.java
-          grep -q "crossmod_bridge_after_mario_update" sm64-host/crossmod_bridge.c
-          grep -q "GRAPH_RENDER_INVISIBLE" sm64-host/crossmod_bridge.c
-          grep -q "crossmod_process_combat" sm64-host/crossmod_bridge.c
-          grep -q "gLakituState.curPos" sm64-host/crossmod_bridge.c
-          grep -q "guest" src/client/java/dev/eiersohn/sm64cross/client/bridge/InputPublisher.java
-          grep -q "BackgroundGuestWindow" src/client/java/dev/eiersohn/sm64cross/client/Sm64CrossClient.java
-          grep -q "Sm64PerspectiveSync" src/client/java/dev/eiersohn/sm64cross/client/Sm64CrossClient.java
-          grep -q "THIRD_PERSON_FRONT" src/client/java/dev/eiersohn/sm64cross/client/render/Sm64PerspectiveSync.java
-          grep -q "captureThirdPersonWorld" src/client/java/dev/eiersohn/sm64cross/client/mixin/Sm64GameRendererMixin.java
-          grep -q "hostWidth" src/client/java/dev/eiersohn/sm64cross/client/bridge/HostState.java
-          grep -q "GetAsyncKeyState" sm64-host/crossmod_bridge.c
-          grep -q "crossmod_send_slot" sm64-host/crossmod_bridge.c
-          grep -q "crossmod_send_pointer" sm64-host/crossmod_bridge.c
-          grep -q "crossmod_send_movement_input" sm64-host/crossmod_bridge.c
-          grep -q "crossmod_bridge_sync_minecraft_proxy" sm64-host/crossmod_bridge.c
-          grep -q "keySprint.setDown" src/client/java/dev/eiersohn/sm64cross/client/bridge/GuestCommandHandler.java
-          grep -q 'case "look"' src/client/java/dev/eiersohn/sm64cross/client/bridge/GuestCommandHandler.java
-          grep -q "sensitivity().get()" src/client/java/dev/eiersohn/sm64cross/client/bridge/GuestCommandHandler.java
-          grep -q "look.*dx.*dy" sm64-host/crossmod_bridge.c
-          test -f src/main/java/dev/eiersohn/sm64cross/terrain/Sm64CollisionBlock.java
-          grep -q "terrain_box" sm64-host/crossmod_bridge.c
-          grep -q "terrain_box" src/client/java/dev/eiersohn/sm64cross/client/bridge/GuestCommandHandler.java
-          grep -q "dynamicShape" src/main/java/dev/eiersohn/sm64cross/Sm64CrossMod.java
-          grep -q "Shapes.or" src/client/java/dev/eiersohn/sm64cross/client/bridge/Sm64TerrainProxy.java
-          grep -q "collisionReady" src/client/java/dev/eiersohn/sm64cross/client/bridge/Sm64TerrainProxy.java
-          grep -q "invalidateForContextChange" src/client/java/dev/eiersohn/sm64cross/client/render/Sm64VisualSync.java
-          grep -q "setNoGravity(true)" src/client/java/dev/eiersohn/sm64cross/client/bridge/ServerPlayerSync.java
+          test ! -e sm64-host/crossmod_bridge.c
+          test ! -e src/client/java/dev/eiersohn/sm64cross/client/render/SmoothSurvivalHud.java
+          test ! -e src/client/java/dev/eiersohn/sm64cross/client/bridge/Sm64TerrainProxy.java
 
-      - name: Patch a fresh upstream SM64 checkout
-        run: |
-          mkdir -p vendor
-          git clone --depth 1 https://github.com/sm64-port/sm64-port.git vendor/sm64-port
-          git clone --depth 1 https://github.com/rehan-remade/universal-modder vendor/universal-modder
-          python - <<'PY'
-          from pathlib import Path
-          import tools.prepare_passthrough as p
+      - name: Bootstrap Universal Modder source of truth
+        run: python tools/bootstrap_um.py
 
-          # Simulate a user's already-patched vendor checkout from the old
-          # position-authority bridge, then ensure the current setup migrates
-          # it automatically.
-          mario = Path("vendor/sm64-port/src/game/mario.c")
-          text = mario.read_text(encoding="utf-8")
-          vanilla = (
-              "    if (gMarioState->action) {\n"
-              "        gMarioState->marioObj->header.gfx.node.flags &= ~GRAPH_RENDER_INVISIBLE;\n"
-              "        mario_reset_bodystate(gMarioState);"
-          )
-          legacy = (
-              "    if (gMarioState->action) {\n"
-              "        if (crossmod_bridge_apply_mario(gMarioState)) {\n"
-              "            gMarioState->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;\n"
-              "            mario_reset_bodystate(gMarioState);\n"
-              "            mario_handle_special_floors(gMarioState);\n"
-              "            mario_process_interactions(gMarioState);\n"
-              "            gMarioState->marioObj->oInteractStatus = 0;\n"
-              "            return 0;\n"
-              "        }\n"
-              "        gMarioState->marioObj->header.gfx.node.flags &= ~GRAPH_RENDER_INVISIBLE;\n"
-              "        mario_reset_bodystate(gMarioState);"
-          )
-          if vanilla not in text:
-              raise SystemExit("vanilla Mario migration marker missing")
-          mario.write_text(text.replace(vanilla, legacy, 1), encoding="utf-8")
+      - name: Sync Minecraft guest from Universal Modder
+        run: python tools/sync_um_reference.py
 
-          p.patch_sm64_port_toolchain()
-          p.install_bridge()
+      - name: Verify guest starts from the Universal Modder reference
+        shell: bash
+        run: diff -qr vendor/universal-modder/examples/minecraft-gta5-passthrough/mc generated/minecraft-guest
 
-          migrated = mario.read_text(encoding="utf-8")
-          if "crossmod_bridge_apply_mario" in migrated:
-              raise SystemExit("legacy apply_mario patch survived migration")
+      - name: Apply tiny SM64 guest visibility delta
+        run: python tools/patch_guest_for_sm64.py
 
-          print("fresh/legacy checkout migration patch OK")
-          PY
-          grep -q "crossmod_bridge_apply_controller(gPlayer1Controller)" vendor/sm64-port/src/game/game_init.c
-          grep -q "crossmod_bridge_after_mario_update(gMarioState)" vendor/sm64-port/src/game/mario.c
-          grep -q "crossmod_bridge_sync_minecraft_proxy(gMarioState)" vendor/sm64-port/src/game/mario.c
-          grep -q "Minecraft-authoritative proxy sync" vendor/sm64-port/src/game/mario.c
-          if grep -q "Crossmod locomotion mode" vendor/sm64-port/src/game/mario.c; then
-            echo "old full locomotion bypass survived"
-            exit 1
-          fi
-          grep -q "crossmod_bridge_override_camera(c)" vendor/sm64-port/src/game/camera.c
-          grep -q "crossmod_bridge_mouse_wheel(wheel_y)" vendor/sm64-port/src/pc/gfx/gfx_sdl2.c
-          grep -q "crossmod_bridge_load_block_surfaces" vendor/sm64-port/src/game/object_list_processor.c
-          grep -q "crossmod_add_dynamic_box" vendor/sm64-port/src/engine/surface_load.c
-          grep -q "crossmod_bridge_poll" vendor/sm64-port/src/pc/pc_main.c
-          test -f vendor/sm64-port/src/pc/ws.cpp
-          test -f vendor/sm64-port/src/pc/ws.h
-          test -f vendor/sm64-port/src/pc/crossmod_ws_api.cpp
-          test -f vendor/sm64-port/src/pc/gfx/mc_overlay_dx11.inc
-          grep -q "mc_overlay_render" vendor/sm64-port/src/pc/gfx/gfx_direct3d11.cpp
-          grep -q "depth_shader_resource_view" vendor/sm64-port/src/pc/gfx/gfx_direct3d11.cpp
+      - name: Build Universal Modder Minecraft guest with SM64 delta
+        working-directory: generated/minecraft-guest
+        run: ./gradlew build --no-daemon
 
-      - name: Whole-game integrity
-        run: |
-          python tools/verify_whole_game.py --sm64-port vendor/sm64-port
+      - name: Generate clean SM64 host adapter
+        run: python tools/generate_sm64_host.py
 
-      - name: Syntax-check SM64 bridge against upstream headers
-        run: |
-          gcc -std=gnu11 -fsyntax-only             -DTARGET_PC=1 -DVERSION_US=1 -DAVOID_UB=1 -DNON_MATCHING=1             -Ivendor/sm64-port             -Ivendor/sm64-port/include             -Ivendor/sm64-port/src             vendor/sm64-port/src/pc/crossmod_bridge.c
-
-      - name: Validate Gradle wrapper
-        uses: gradle/actions/wrapper-validation@v4
-
-      - name: Build Fabric bridge
-        run: ./gradlew build
+      - name: Verify clean Universal Modder architecture
+        run: python tools/verify_clean_rebuild.py
 
 
-  windows-sm64-renderer-check:
+  windows-sm64-syntax:
     runs-on: windows-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - name: Parse unified Windows runner
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path "windows-crossmod.ps1"),
+            [ref]$null,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }
 
       - name: Set up MSYS2 MinGW64
         uses: msys2/setup-msys2@v2
@@ -153,42 +80,22 @@ jobs:
             python
             mingw-w64-x86_64-gcc
 
-      - name: Patch fresh SM64 D3D11 renderer
+      - name: Generate clean Universal Modder SM64 host
         shell: msys2 {0}
         run: |
-          mkdir -p vendor
-          git clone --depth 1 https://github.com/sm64-port/sm64-port.git vendor/sm64-port
-          git clone --depth 1 https://github.com/rehan-remade/universal-modder vendor/universal-modder
-          python - <<'PY'
-          import tools.prepare_passthrough as p
-          p.install_bridge()
-          print("D3D11 compositor patch OK")
-          PY
+          python tools/bootstrap_um.py
+          python tools/generate_sm64_host.py
+          python tools/patch_sm64_toolchain.py
 
-      - name: Syntax-check patched D3D11 compositor
+      - name: Build patched bundled armips
+        shell: msys2 {0}
+        run: |
+          make -C vendor/sm64-port/tools armips
+
+      - name: Syntax-check clean host and D3D11 compositor
         shell: msys2 {0}
         run: |
           cd vendor/sm64-port
-          g++ -std=gnu++17 -fsyntax-only             -DENABLE_DX11=1 -DTARGET_WINDOWS=1             -DNO_SEGMENTED_MEMORY=1 -DUSE_SYSTEM_MALLOC=1             -DWIDESCREEN=1 -D_LANGUAGE_C=1 -DVERSION_US=1             -I. -Iinclude -Isrc -Isrc/pc -Isrc/pc/gfx             src/pc/gfx/gfx_direct3d11.cpp
-          g++ -std=gnu++17 -fsyntax-only -Isrc/pc src/pc/ws.cpp src/pc/crossmod_ws_api.cpp
-          gcc -std=gnu11 -fsyntax-only \
-            -DTARGET_PC=1 -DVERSION_US=1 -DAVOID_UB=1 -DNON_MATCHING=1 \
-            -I. -Iinclude -Isrc -Isrc/pc \
-            src/pc/crossmod_bridge.c
-
-      - name: Compile-check embedded passthrough shader
-        shell: msys2 {0}
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          source = Path("vendor/sm64-port/src/pc/gfx/mc_overlay_dx11.inc").read_text(encoding="utf-8")
-          try:
-              shader = source.split('R"HLSL(', 1)[1].split(')HLSL"', 1)[0]
-          except IndexError as exc:
-              raise SystemExit("embedded HLSL block not found") from exc
-
-          Path("vendor/sm64-port/build-sm64cross-compositor.hlsl").write_text(shader, encoding="utf-8")
-          PY
-          g++ -std=gnu++17 tools/compositor_shader_check.cpp -ld3dcompiler -o shader-check.exe
-          ./shader-check.exe vendor/sm64-port/build-sm64cross-compositor.hlsl
+          g++ -std=gnu++17 -fsyntax-only             -DTARGET_PC=1 -DTARGET_WINDOWS=1 -DVERSION_US=1             -DAVOID_UB=1 -DNON_MATCHING=1 -DNO_SEGMENTED_MEMORY=1             -DUSE_SYSTEM_MALLOC=1 -D_LANGUAGE_C=1             -I. -Iinclude -Isrc -Isrc/pc -Isrc/pc/gfx             src/pc/sm64_passthrough.cpp src/pc/ws.cpp
+          g++ -std=gnu++17 -fsyntax-only             -DENABLE_DX11=1 -DTARGET_WINDOWS=1 -DNO_SEGMENTED_MEMORY=1             -DUSE_SYSTEM_MALLOC=1 -DWIDESCREEN=1 -D_LANGUAGE_C=1             -DVERSION_US=1 -I. -Iinclude -Isrc -Isrc/pc -Isrc/pc/gfx             src/pc/gfx/gfx_direct3d11.cpp
+          gcc -std=gnu11 -fsyntax-only             -DTARGET_PC=1 -DTARGET_WINDOWS=1 -DVERSION_US=1             -DAVOID_UB=1 -DNON_MATCHING=1             -I. -Iinclude -Isrc -Isrc/pc             src/game/mario.c src/game/camera.c src/game/hud.c

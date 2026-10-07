@@ -191,9 +191,9 @@ static bool um_create_depth(
 static bool um_ensure_textures(uint32_t w, uint32_t h) {
     if (um_mcpt.width == w
         && um_mcpt.height == h
-        && um_mcpt.world != nullptr
-        && um_mcpt.depth != nullptr
-        && um_mcpt.overlay != nullptr) {
+        && um_mcpt.world.Get() != nullptr
+        && um_mcpt.depth.Get() != nullptr
+        && um_mcpt.overlay.Get() != nullptr) {
         return true;
     }
 

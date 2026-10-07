@@ -7,6 +7,12 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#ifdef near
+#undef near
+#endif
+#ifdef far
+#undef far
+#endif
 
 extern "C" {
 #include "sm64.h"

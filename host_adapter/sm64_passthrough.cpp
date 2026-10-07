@@ -89,6 +89,10 @@ bool g_uiMiddle = false;
 bool g_firstPerson = false;
 bool g_inventoryScreen = false;
 bool g_spawnSyncPending = false;
+bool g_semanticJumpPrev = false;
+bool g_semanticAttackPrev = false;
+bool g_semanticUsePrev = false;
+bool g_semanticSneakPrev = false;
 int g_driveDelayFrames = 0;
 
 struct McPose {
@@ -696,6 +700,39 @@ void um_passthrough_neutralize_controller(struct MarioState *m) {
     m->controller->stickMag = 0.0f;
     m->controller->buttonDown = 0;
     m->controller->buttonPressed = 0;
+
+    if (g_inventoryScreen) {
+        g_semanticJumpPrev = false;
+        g_semanticAttackPrev = false;
+        g_semanticUsePrev = false;
+        g_semanticSneakPrev = false;
+        return;
+    }
+
+    const bool jump = key_down(VK_SPACE);
+    const bool attack = key_down(VK_LBUTTON);
+    const bool use = key_down(VK_RBUTTON);
+    const bool sneak = key_down(VK_SHIFT);
+
+    if (jump) m->controller->buttonDown |= A_BUTTON;
+    if (attack || use) m->controller->buttonDown |= B_BUTTON;
+    if (sneak) m->controller->buttonDown |= Z_TRIG;
+
+    if (jump && !g_semanticJumpPrev) {
+        m->controller->buttonPressed |= A_BUTTON;
+    }
+    if ((attack && !g_semanticAttackPrev)
+        || (use && !g_semanticUsePrev)) {
+        m->controller->buttonPressed |= B_BUTTON;
+    }
+    if (sneak && !g_semanticSneakPrev) {
+        m->controller->buttonPressed |= Z_TRIG;
+    }
+
+    g_semanticJumpPrev = jump;
+    g_semanticAttackPrev = attack;
+    g_semanticUsePrev = use;
+    g_semanticSneakPrev = sneak;
 }
 
 void um_passthrough_apply_mario_proxy(struct MarioState *m) {

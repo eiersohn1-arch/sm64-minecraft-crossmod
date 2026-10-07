@@ -239,7 +239,6 @@ function Setup {
     Invoke-Python @("tools\sync_um_reference.py")
     Invoke-Python @("tools\patch_guest_for_sm64.py")
     Invoke-Python @("tools\generate_sm64_host.py")
-    Invoke-Python @("tools\patch_sm64_toolchain.py")
 
     Write-Host ""
     Write-Host "Building the real Universal Modder Minecraft guest..." -ForegroundColor Cyan
@@ -311,7 +310,7 @@ function Start-Guest {
 
 function Start-Sm64 {
     Doctor -RequireBuild
-    $buildDir = Join-Path $Root "vendor\sm64-port\build\us_pc"
+    $buildDir = Join-Path $Root "vendor\sm64coopdx\build\us_pc"
     $exe = Get-ChildItem $buildDir -Filter *.exe | Select-Object -First 1
     Write-Host "Starting SM64CoopDX host: $($exe.Name)" -ForegroundColor Cyan
     return Start-Process -FilePath $exe.FullName -WorkingDirectory $exe.DirectoryName -PassThru

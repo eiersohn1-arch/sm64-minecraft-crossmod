@@ -42,6 +42,11 @@ int at_least(int value, int minimum) {
     return value < minimum ? minimum : value;
 }
 
+template <typename T>
+T um_clamp(T value, T low, T high) {
+    return value < low ? low : (value > high ? high : value);
+}
+
 constexpr float SCALE = 100.0f;
 constexpr float MC_Y0 = 64.0f;
 constexpr float RAD_TO_DEG = 57.29577951308232f;
@@ -292,11 +297,11 @@ void send_ui_button(int button, int vk, bool &previous) {
 
     const int w = at_least(g_viewWidth.load(std::memory_order_relaxed), 1);
     const int h = at_least(g_viewHeight.load(std::memory_order_relaxed), 1);
-    const double nx = std::clamp(
+    const double nx = um_clamp(
         static_cast<double>(g_pointerX.load(std::memory_order_relaxed)) / w,
         0.0, 1.0
     );
-    const double ny = std::clamp(
+    const double ny = um_clamp(
         static_cast<double>(g_pointerY.load(std::memory_order_relaxed)) / h,
         0.0, 1.0
     );
@@ -374,11 +379,11 @@ void publish_input() {
     if (g_pointerDirty.exchange(false, std::memory_order_relaxed)) {
         const int w = at_least(g_viewWidth.load(std::memory_order_relaxed), 1);
         const int h = at_least(g_viewHeight.load(std::memory_order_relaxed), 1);
-        const double nx = std::clamp(
+        const double nx = um_clamp(
             static_cast<double>(g_pointerX.load(std::memory_order_relaxed)) / w,
             0.0, 1.0
         );
-        const double ny = std::clamp(
+        const double ny = um_clamp(
             static_cast<double>(g_pointerY.load(std::memory_order_relaxed)) / h,
             0.0, 1.0
         );
@@ -474,7 +479,7 @@ void append_surface16(
     std::string &cells,
     int x, int z, int blockY, int height16
 ) {
-    height16 = std::clamp(height16, 1, 16);
+    height16 = um_clamp(height16, 1, 16);
     char entry[80];
     std::snprintf(
         entry, sizeof(entry),
@@ -598,7 +603,7 @@ void publish_collision() {
                 if (fraction <= 0.0001f) {
                     --floorBlockY;
                 } else {
-                    height16 = std::clamp(
+                    height16 = um_clamp(
                         static_cast<int>(std::ceil(fraction * 16.0f)),
                         1, 16
                     );
@@ -938,7 +943,7 @@ void um_passthrough_apply_mario_proxy(struct MarioState *m) {
 void um_passthrough_sync_health(struct MarioState *m) {
     if (!m || !g_ws.connected() || !g_mc.valid) return;
 
-    const float mcHealth = std::clamp(g_mc.health, 0.0f, 20.0f);
+    const float mcHealth = um_clamp(g_mc.health, 0.0f, 20.0f);
     int targetHealth = 0;
     if (mcHealth > 0.0f) {
         targetHealth = static_cast<int>(

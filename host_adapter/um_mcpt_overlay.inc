@@ -597,6 +597,14 @@ static void um_draw_mcpt() {
     );
     d3d.context->Draw(3, 0);
 
+    // Native host-space avatar: Minecraft still simulates Steve, but the
+    // third-person body is rendered directly into the SM64 pass so it shares
+    // the host projection and depth instead of looking like a pasted image.
+    um_draw_native_avatar();
+
+    // Rebind MCPT after the native pass changed raw D3D11 state.
+    um_bind_common();
+
     // Pass 2: Minecraft hand, HUD, inventory and screens always on top.
     d3d.context->OMSetRenderTargets(
         1,

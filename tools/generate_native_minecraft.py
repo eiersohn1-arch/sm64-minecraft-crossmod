@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SM64 = ROOT / "vendor" / "sm64-port"
 PC = SM64 / "src" / "pc"
+GFX = PC / "gfx"
 NM = PC / "native_minecraft"
 
 

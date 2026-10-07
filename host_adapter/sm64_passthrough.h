@@ -20,6 +20,8 @@ void um_passthrough_key_event(int vk, int down);
 void um_passthrough_mouse_button(int button, int down);
 void um_passthrough_raw_mouse(int dx, int dy);
 void um_passthrough_scroll(int delta);
+void um_passthrough_pointer(int x, int y, int width, int height);
+void um_passthrough_view(int width, int height);
 void um_passthrough_focus_changed(int focused);
 int um_passthrough_pointer_locked(void);
 

@@ -137,6 +137,33 @@ replace_once(
     '			}\n',
 )
 
+# When a real Minecraft Screen is open, mouse clicks belong to the screen,
+# not to gameplay attack/use mappings that could fire later after it closes.
+replace_once(
+    client_input,
+    '			case "key" -> {\n'
+    '				String k = m.get("k").getAsString();\n'
+    '				boolean down = !m.has("down") || m.get("down").getAsBoolean();\n',
+    '			case "key" -> {\n'
+    '				String k = m.get("k").getAsString();\n'
+    '				if (minecraft.gui.screen() != null\n'
+    '					&& (k.equals("attack") || k.equals("use") || k.equals("pick") || k.equals("drop") || k.equals("swap"))) {\n'
+    '					return;\n'
+    '				}\n'
+    '				boolean down = !m.has("down") || m.get("down").getAsBoolean();\n',
+)
+
+# Keep the real Minecraft render window offscreen even if Universal Modder's
+# existing view handler restores it while matching the SM64 viewport.
+replace_once(
+    client_input,
+    '				SDLVideo.SDL_SetWindowSize(handle, w, h);\n'
+    '				SDLVideo.SDL_SyncWindow(handle);\n',
+    '				SDLVideo.SDL_SetWindowSize(handle, w, h);\n'
+    '				SDLVideo.SDL_SetWindowPosition(handle, -32000, 0);\n'
+    '				SDLVideo.SDL_SyncWindow(handle);\n',
+)
+
 # 3) In Universal Modder's original drive mode Minecraft is intentionally
 # airborne for GTA elytra flight.  SM64 uses the same mode for ordinary
 # walking, so retain vanilla onGround/gravity, honour F5 first/third person,
@@ -184,6 +211,23 @@ replace_once(
     passthrough_client,
     '			player.getAbilities().flying = true;\n',
     '			player.getAbilities().flying = false;\n',
+)
+
+replace_once(
+    passthrough_client,
+    'private static boolean worldRequested;\n',
+    'private static boolean worldRequested;\n'
+    '\tprivate static boolean lastScreenOpen;\n',
+)
+replace_once(
+    passthrough_client,
+    '\tprivate static void tick(final Minecraft minecraft) {\n',
+    '\tprivate static void tick(final Minecraft minecraft) {\n'
+    '\t\tboolean screenOpen = minecraft.level != null && minecraft.gui.screen() != null;\n'
+    '\t\tif (screenOpen != lastScreenOpen) {\n'
+    '\t\t\tlastScreenOpen = screenOpen;\n'
+    '\t\t\tPassthrough.events.accept("{\\\"t\\\":\\\"screen\\\",\\\"open\\\":" + screenOpen + "}");\n'
+    '\t\t}\n',
 )
 
 

@@ -41,6 +41,11 @@ void native_minecraft_override_camera(void);
 int native_minecraft_active(void);
 int native_minecraft_first_person(void);
 int native_minecraft_selected_slot(void);
+void native_minecraft_get_render_state(
+    float *x, float *y, float *z,
+    float *yaw, float *pitch,
+    int *first_person, int *selected_slot
+);
 
 #ifdef __cplusplus
 }
@@ -313,6 +318,20 @@ extern "C" int native_minecraft_first_person(void) {
 
 extern "C" int native_minecraft_selected_slot(void) {
     return gPlayer.selectedSlot;
+}
+
+extern "C" void native_minecraft_get_render_state(
+    float *x, float *y, float *z,
+    float *yaw, float *pitch,
+    int *first_person, int *selected_slot
+) {
+    if (x) *x = gPlayer.x;
+    if (y) *y = gPlayer.y;
+    if (z) *z = gPlayer.z;
+    if (yaw) *yaw = gPlayer.yaw;
+    if (pitch) *pitch = gPlayer.pitch;
+    if (first_person) *first_person = gPlayer.firstPerson ? 1 : 0;
+    if (selected_slot) *selected_slot = gPlayer.selectedSlot;
 }
 
 extern "C" void native_minecraft_tick(MarioState *m) {

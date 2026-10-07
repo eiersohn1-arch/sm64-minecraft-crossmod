@@ -38,8 +38,57 @@ replace_once(
 client_input = CLIENT / "ClientInput.java"
 replace_once(
     client_input,
+    'import net.minecraft.client.Minecraft;\n',
+    'import net.minecraft.client.Minecraft;\n'
+    'import net.minecraft.client.input.MouseButtonEvent;\n'
+    'import net.minecraft.client.input.MouseButtonInfo;\n',
+)
+replace_once(
+    client_input,
+    'final class ClientInput {\n\tprivate ClientInput() {\n',
+    'final class ClientInput {\n'
+    '\tprivate static double hostPointerX = 0.5;\n'
+    '\tprivate static double hostPointerY = 0.5;\n'
+    '\tprivate static int activeUiButton = 0;\n\n'
+    '\tprivate ClientInput() {\n',
+)
+replace_once(
+    client_input,
     '		switch (m.get("t").getAsString()) {\n			case "key" -> {',
     '		switch (m.get("t").getAsString()) {\n'
+    '			case "pointer" -> {\n'
+    '				double oldX = hostPointerX;\n'
+    '				double oldY = hostPointerY;\n'
+    '				hostPointerX = Math.clamp(m.get("x").getAsDouble(), 0.0, 1.0);\n'
+    '				hostPointerY = Math.clamp(m.get("y").getAsDouble(), 0.0, 1.0);\n'
+    '				if (minecraft.gui.screen() != null && activeUiButton != 0) {\n'
+    '					double x = hostPointerX * minecraft.getWindow().getGuiScaledWidth();\n'
+    '					double y = hostPointerY * minecraft.getWindow().getGuiScaledHeight();\n'
+    '					double dx = (hostPointerX - oldX) * minecraft.getWindow().getGuiScaledWidth();\n'
+    '					double dy = (hostPointerY - oldY) * minecraft.getWindow().getGuiScaledHeight();\n'
+    '					MouseButtonEvent event = new MouseButtonEvent(x, y, new MouseButtonInfo(activeUiButton, 0));\n'
+    '					minecraft.gui.screen().mouseDragged(event, dx, dy);\n'
+    '				}\n'
+    '			}\n'
+    '			case "uibutton" -> {\n'
+    '				if (m.has("x")) hostPointerX = Math.clamp(m.get("x").getAsDouble(), 0.0, 1.0);\n'
+    '				if (m.has("y")) hostPointerY = Math.clamp(m.get("y").getAsDouble(), 0.0, 1.0);\n'
+    '				if (minecraft.gui.screen() != null) {\n'
+    '					int button = m.get("b").getAsInt();\n'
+    '					boolean down = m.get("down").getAsBoolean();\n'
+    '					double x = hostPointerX * minecraft.getWindow().getGuiScaledWidth();\n'
+    '					double y = hostPointerY * minecraft.getWindow().getGuiScaledHeight();\n'
+    '					MouseButtonEvent event = new MouseButtonEvent(x, y, new MouseButtonInfo(button, 0));\n'
+    '					if (down) {\n'
+    '						activeUiButton = button;\n'
+    '						minecraft.gui.screen().afterMouseAction();\n'
+    '						minecraft.gui.screen().mouseClicked(event, false);\n'
+    '					} else {\n'
+    '						minecraft.gui.screen().mouseReleased(event);\n'
+    '						if (activeUiButton == button) activeUiButton = 0;\n'
+    '					}\n'
+    '				}\n'
+    '			}\n'
     '			case "move" -> {\n'
     '				boolean gameplay = minecraft.gui.screen() == null;\n'
     '				minecraft.options.keyUp.setDown(gameplay && m.get("f").getAsBoolean());\n'
@@ -59,6 +108,33 @@ replace_once(
     '				}\n'
     '			}\n'
     '			case "key" -> {',
+)
+
+# Make the existing Universal Modder scroll action operate on the actual
+# Minecraft screen when inventory/crafting/etc. is open; otherwise it keeps
+# its original hotbar behavior.
+replace_once(
+    client_input,
+    '			case "scroll" -> {\n'
+    '				if (player != null) {\n'
+    '					Inventory inventory = player.getInventory();\n'
+    '					int size = Inventory.getSelectionSize();\n'
+    '					inventory.setSelectedSlot(Math.floorMod(inventory.getSelectedSlot() - m.get("d").getAsInt(), size));\n'
+    '				}\n'
+    '			}\n',
+    '			case "scroll" -> {\n'
+    '				double amount = m.get("d").getAsDouble();\n'
+    '				if (minecraft.gui.screen() != null) {\n'
+    '					double x = hostPointerX * minecraft.getWindow().getGuiScaledWidth();\n'
+    '					double y = hostPointerY * minecraft.getWindow().getGuiScaledHeight();\n'
+    '					minecraft.gui.screen().mouseScrolled(x, y, 0.0, amount);\n'
+    '					minecraft.gui.screen().afterMouseAction();\n'
+    '				} else if (player != null) {\n'
+    '					Inventory inventory = player.getInventory();\n'
+    '					int size = Inventory.getSelectionSize();\n'
+    '					inventory.setSelectedSlot(Math.floorMod(inventory.getSelectedSlot() - (int)Math.signum(amount), size));\n'
+    '				}\n'
+    '			}\n',
 )
 
 # 3) In Universal Modder's original drive mode Minecraft is intentionally

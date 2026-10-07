@@ -61,6 +61,9 @@ patch_once(
     "        mario_reset_bodystate(gMarioState);\n"
     "        update_mario_inputs(gMarioState);\n",
     "        mario_reset_bodystate(gMarioState);\n"
+    "        if (um_passthrough_minecraft_authority()) {\n"
+    "            um_passthrough_apply_mario_proxy(gMarioState);\n"
+    "        }\n"
     "        um_passthrough_neutralize_controller(gMarioState);\n"
     "        update_mario_inputs(gMarioState);\n",
 )

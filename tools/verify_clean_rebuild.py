@@ -60,7 +60,12 @@ contains(host, "um_passthrough_neutralize_controller", "Mario controller disable
 contains(host, "um_passthrough_apply_mario_proxy", "Mario is progression proxy for Steve")
 contains(host, "um_passthrough_override_camera", "Minecraft look owns normal SM64 camera")
 contains(host, "ACT_GROUP_CUTSCENE", "SM64 cutscene authority handoff")
-contains(host, "ACT_GROUP_SUBMERGED", "unsupported submerged actions fail back to SM64")
+contains(host, "find_water_level", "SM64 water volumes are sampled into Minecraft")
+contains(host, '"water"', "SM64 water protocol is emitted")
+contains(host, '"surfacebegin"', "moving SM64 collision begins atomic refresh")
+contains(host, '"surfaceend"', "moving SM64 collision completes atomic refresh")
+contains(host, "SNAPSHOT_INTERVAL", "moving SM64 terrain is periodically refreshed")
+contains(host, "um_passthrough_sync_health", "native SM64 health changes sync to Minecraft")
 
 contains(dxgi, "WM_INPUT", "Win32 raw mouse input installed")
 contains(dxgi, "RegisterRawInputDevices", "raw mouse device registered")
@@ -99,6 +104,14 @@ contains(guest_world_bridge, "HostSurfaceState.markMined", "breaking host surfac
 contains(guest_world_bridge, "surfacebreak", "host surface breaks are emitted as cross-game events")
 contains(guest_world_bridge, "HostBlocks.SM64_SURFACE", "Universal Modder ground uses interactive host surface instead of barrier")
 contains(guest_host_link, '"surfacectx"', "Universal Modder link accepts SM64 surface contexts")
+contains(guest_host_link, '"water"', "Universal Modder link accepts SM64 water columns")
+contains(guest_host_link, '"surfacebegin"', "Universal Modder link accepts moving-surface snapshot begin")
+contains(guest_host_link, '"surfaceend"', "Universal Modder link accepts moving-surface snapshot end")
+contains(guest_host_link, '"healthdelta"', "Universal Modder link accepts native SM64 health deltas")
+contains(guest_world_bridge, "hostWater", "SM64 water is tracked separately from player-built water")
+contains(guest_world_bridge, "Blocks.WATER", "SM64 water becomes real Minecraft water")
+contains(guest_world_bridge, "desiredHostWater", "stale SM64 water is reconciled after snapshots")
+contains(guest_world_bridge, "healthDelta", "SM64 damage/healing is applied to real Minecraft health")
 
 guest_input = ROOT / "generated" / "minecraft-guest" / "src" / "client" / "java" / "dev" / "rehan" / "passthrough" / "client" / "ClientInput.java"
 contains(guest_input, "MouseButtonEvent", "real Minecraft GUI receives mouse events")

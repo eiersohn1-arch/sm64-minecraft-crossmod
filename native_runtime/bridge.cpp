@@ -206,7 +206,7 @@ extern "C" int native_minecraft_selected_slot(void) {
 extern "C" void native_minecraft_get_render_state(
     float *x, float *y, float *z,
     float *yaw, float *pitch,
-    int *firstPerson, int *selectedSlot
+    int *firstPerson, int *selectedSlot, int *inventoryOpen
 ) {
     if (x) *x = gNm.player.x;
     if (y) *y = gNm.player.y;
@@ -215,4 +215,5 @@ extern "C" void native_minecraft_get_render_state(
     if (pitch) *pitch = gNm.player.pitch;
     if (firstPerson) *firstPerson = gNm.player.firstPerson ? 1 : 0;
     if (selectedSlot) *selectedSlot = gNm.player.selectedSlot;
+    if (inventoryOpen) *inventoryOpen = gNm.player.inventoryOpen ? 1 : 0;
 }

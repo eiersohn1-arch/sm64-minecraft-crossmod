@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "passthrough:block/sm64_surface"
+    }
+  }
+}

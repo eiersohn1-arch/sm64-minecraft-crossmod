@@ -35,6 +35,10 @@ extern struct CameraFOVStatus sFOVState;
 
 namespace {
 
+int at_least(int value, int minimum) {
+    return value < minimum ? minimum : value;
+}
+
 constexpr float SCALE = 100.0f;
 constexpr float MC_Y0 = 64.0f;
 constexpr float RAD_TO_DEG = 57.29577951308232f;
@@ -160,8 +164,8 @@ void send_ui_button(int button, int vk, bool &previous) {
 
     previous = now;
 
-    const int w = std::max(1, g_viewWidth.load(std::memory_order_relaxed));
-    const int h = std::max(1, g_viewHeight.load(std::memory_order_relaxed));
+    const int w = at_least(g_viewWidth.load(std::memory_order_relaxed), 1);
+    const int h = at_least(g_viewHeight.load(std::memory_order_relaxed), 1);
     const double nx = std::clamp(
         static_cast<double>(g_pointerX.load(std::memory_order_relaxed)) / w,
         0.0, 1.0
@@ -229,8 +233,8 @@ void publish_input() {
     send_ui_button(2, VK_MBUTTON, g_uiMiddle);
 
     if (g_viewDirty.exchange(false, std::memory_order_relaxed)) {
-        const int w = std::max(320, g_viewWidth.load(std::memory_order_relaxed));
-        const int h = std::max(240, g_viewHeight.load(std::memory_order_relaxed));
+        const int w = at_least(g_viewWidth.load(std::memory_order_relaxed), 320);
+        const int h = at_least(g_viewHeight.load(std::memory_order_relaxed), 240);
         char view[96];
         std::snprintf(
             view, sizeof(view),
@@ -240,8 +244,8 @@ void publish_input() {
     }
 
     if (g_pointerDirty.exchange(false, std::memory_order_relaxed)) {
-        const int w = std::max(1, g_viewWidth.load(std::memory_order_relaxed));
-        const int h = std::max(1, g_viewHeight.load(std::memory_order_relaxed));
+        const int w = at_least(g_viewWidth.load(std::memory_order_relaxed), 1);
+        const int h = at_least(g_viewHeight.load(std::memory_order_relaxed), 1);
         const double nx = std::clamp(
             static_cast<double>(g_pointerX.load(std::memory_order_relaxed)) / w,
             0.0, 1.0

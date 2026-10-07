@@ -73,6 +73,7 @@ replace_once(
     host_link,
     '\t\t\t\tcase "ground" -> WorldBridge.solid(ints(m.getAsJsonArray("c")));\n',
     '\t\t\t\tcase "ground" -> WorldBridge.solid(ints(m.getAsJsonArray("c")));\n'
+    '\t\t\t\tcase "ground16" -> WorldBridge.surface16(ints(m.getAsJsonArray("c")));\n'
     '\t\t\t\tcase "water" -> WorldBridge.water(ints(m.getAsJsonArray("c")));\n'
     '\t\t\t\tcase "surfacebegin" -> WorldBridge.beginSurfaceSnapshot();\n'
     '\t\t\t\tcase "surfaceend" -> WorldBridge.endSurfaceSnapshot();\n'
@@ -139,6 +140,48 @@ replace_once(
     '\t\t\t\t\t\t\tif (desiredHostSurfaces != null) desiredHostSurfaces.add(immutable);\n'
     '\t\t\t\t\t\t}\n',
 )
+# Precise SM64 floor packets use {x,z,blockY,height16}. Three full
+# support cells are installed below the partial top cell, while the top shape
+# follows the original polygon height to 1/16 block.
+replace_once(
+    world_bridge,
+    '\t/** Remove every barrier we placed (e.g. when the host teleports somewhere else). */\n',
+    '\t/** Precise SM64 floor cells: {x,z,y,height16,...}. */\n'
+    '\tpublic static void surface16(final int[] cells) {\n'
+    '\t\tMinecraftServer s = server;\n'
+    '\t\tif (s == null) return;\n'
+    '\t\ts.execute(() -> {\n'
+    '\t\t\tServerLevel level = s.overworld();\n'
+    '\t\t\tBlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();\n'
+    '\t\t\tplacingGround = true;\n'
+    '\t\t\tfor (int i = 0; i + 3 < cells.length; i += 4) {\n'
+    '\t\t\t\tint x = cells[i];\n'
+    '\t\t\t\tint z = cells[i + 1];\n'
+    '\t\t\t\tint topY = cells[i + 2];\n'
+    '\t\t\t\tint height = Math.clamp(cells[i + 3], 1, 16);\n'
+    '\t\t\t\tfor (int y = topY - 3; y <= topY; ++y) {\n'
+    '\t\t\t\t\tpos.set(x, y, z);\n'
+    '\t\t\t\t\tif (!level.isInWorldBounds(pos) || HostSurfaceState.mined(pos)) continue;\n'
+    '\t\t\t\t\tBlockPos immutable = pos.immutable();\n'
+    '\t\t\t\t\tint h = y == topY ? height : 16;\n'
+    '\t\t\t\t\tBlockState wanted = HostBlocks.SM64_SURFACE.defaultBlockState()\n'
+    '\t\t\t\t\t\t.setValue(HostBlocks.Sm64SurfaceBlock.HEIGHT, h);\n'
+    '\t\t\t\t\tBlockState current = level.getBlockState(pos);\n'
+    '\t\t\t\t\tif (current.isAir() || current.is(HostBlocks.SM64_SURFACE)) {\n'
+    '\t\t\t\t\t\tif (!current.equals(wanted)) {\n'
+    '\t\t\t\t\t\t\tlevel.setBlock(pos, wanted, Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE);\n'
+    '\t\t\t\t\t\t}\n'
+    '\t\t\t\t\t\thostSurfaces.add(immutable);\n'
+    '\t\t\t\t\t\tif (desiredHostSurfaces != null) desiredHostSurfaces.add(immutable);\n'
+    '\t\t\t\t\t}\n'
+    '\t\t\t\t}\n'
+    '\t\t\t}\n'
+    '\t\t\tplacingGround = false;\n'
+    '\t\t});\n'
+    '\t}\n\n'
+    '\t/** Remove every barrier we placed (e.g. when the host teleports somewhere else). */\n',
+)
+
 replace_once(
     world_bridge,
     '\t\t\tfor (BlockPos pos : barriers) {\n'

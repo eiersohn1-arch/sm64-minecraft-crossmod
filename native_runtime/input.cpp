@@ -11,7 +11,7 @@
 
 NmRuntimeState gNm;
 
-static void nm_update_cursor_clip() {
+void nm_input_update_pointer_lock() {
     const bool lock = gNm.authority
         && gNm.input.focused
         && !gNm.player.inventoryOpen;
@@ -91,7 +91,7 @@ bool nm_key_pressed(int vk) {
 
 void nm_input_begin_frame() {
     if (!gNm.input.focused) {
-        nm_update_cursor_clip();
+        nm_input_update_pointer_lock();
         return;
     }
 
@@ -126,7 +126,7 @@ void nm_input_begin_frame() {
         }
     }
 
-    nm_update_cursor_clip();
+    nm_input_update_pointer_lock();
 }
 
 extern "C" int native_minecraft_pointer_locked(void) {

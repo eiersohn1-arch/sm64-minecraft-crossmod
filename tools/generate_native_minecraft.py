@@ -150,6 +150,106 @@ float radians(float degrees) {
     return degrees * 0.01745329251994329577f;
 }
 
+int block_index_at(int bx, int by, int bz) {
+    for (int i = 0; i < (int)gBlocks.size(); ++i) {
+        const NativeBlock &b = gBlocks[(size_t)i];
+        if (b.x == bx && b.y == by && b.z == bz) return i;
+    }
+    return -1;
+}
+
+bool player_intersects_block(float px, float py, float pz, const NativeBlock &b) {
+    const float minX = px - PLAYER_RADIUS;
+    const float maxX = px + PLAYER_RADIUS;
+    const float minY = py;
+    const float maxY = py + PLAYER_HEIGHT;
+    const float minZ = pz - PLAYER_RADIUS;
+    const float maxZ = pz + PLAYER_RADIUS;
+
+    const float bx0 = b.x * BLOCK;
+    const float by0 = b.y * BLOCK;
+    const float bz0 = b.z * BLOCK;
+    const float bx1 = bx0 + BLOCK;
+    const float by1 = by0 + BLOCK;
+    const float bz1 = bz0 + BLOCK;
+
+    return maxX > bx0 && minX < bx1
+        && maxY > by0 && minY < by1
+        && maxZ > bz0 && minZ < bz1;
+}
+
+bool player_intersects_any_block(float px, float py, float pz) {
+    for (const NativeBlock &b : gBlocks) {
+        if (player_intersects_block(px, py, pz, b)) return true;
+    }
+    return false;
+}
+
+bool place_block(int bx, int by, int bz, int type) {
+    if ((int)gBlocks.size() >= 2048 || block_index_at(bx,by,bz) >= 0) {
+        return false;
+    }
+    NativeBlock candidate{bx,by,bz,type};
+    if (player_intersects_block(gPlayer.x,gPlayer.y,gPlayer.z,candidate)) {
+        return false;
+    }
+    gBlocks.push_back(candidate);
+    return true;
+}
+
+void interact_blocks() {
+    const bool breakPressed = key_pressed(VK_LBUTTON);
+    const bool placePressed = key_pressed(VK_RBUTTON);
+    if (!breakPressed && !placePressed) return;
+
+    const float yaw = radians(gPlayer.yaw);
+    const float pitch = radians(gPlayer.pitch);
+    const float cp = std::cos(pitch);
+    const float dx = -std::sin(yaw) * cp;
+    const float dy = -std::sin(pitch);
+    const float dz = -std::cos(yaw) * cp;
+
+    const float ox = gPlayer.x;
+    const float oy = gPlayer.y + EYE_HEIGHT;
+    const float oz = gPlayer.z;
+
+    int prevX = (int)std::floor(ox / BLOCK);
+    int prevY = (int)std::floor(oy / BLOCK);
+    int prevZ = (int)std::floor(oz / BLOCK);
+
+    for (float t = 20.0f; t <= 600.0f; t += 12.0f) {
+        const float px = ox + dx * t;
+        const float py = oy + dy * t;
+        const float pz = oz + dz * t;
+        const int bx = (int)std::floor(px / BLOCK);
+        const int by = (int)std::floor(py / BLOCK);
+        const int bz = (int)std::floor(pz / BLOCK);
+
+        const int hit = block_index_at(bx,by,bz);
+        if (hit >= 0) {
+            if (breakPressed) {
+                gBlocks.erase(gBlocks.begin() + hit);
+            } else if (placePressed) {
+                place_block(prevX,prevY,prevZ,gPlayer.selectedSlot + 1);
+            }
+            return;
+        }
+
+        Surface *floor = nullptr;
+        const float floorY = find_floor(px, py + 30.0f, pz, &floor);
+        if (placePressed && floor != nullptr && floorY > FLOOR_LOWER_LIMIT
+            && py <= floorY + 22.0f && py >= floorY - 36.0f) {
+            const int fy = (int)std::floor((floorY + 2.0f) / BLOCK);
+            place_block(bx,fy,bz,gPlayer.selectedSlot + 1);
+            return;
+        }
+
+        prevX = bx;
+        prevY = by;
+        prevZ = bz;
+    }
+}
+
 void capture_mouse() {
     if (!host_has_focus()) return;
 

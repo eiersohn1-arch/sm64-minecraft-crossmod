@@ -735,17 +735,26 @@ int um_passthrough_minecraft_authority(void) {
 }
 
 void um_passthrough_neutralize_controller(struct MarioState *m) {
-    if (!m || !m->controller || !um_passthrough_minecraft_authority()) {
+    if (!m || !m->controller || !g_ws.connected()) {
         return;
     }
 
-    m->controller->rawStickX = 0;
-    m->controller->rawStickY = 0;
-    m->controller->stickX = 0.0f;
-    m->controller->stickY = 0.0f;
-    m->controller->stickMag = 0.0f;
-    m->controller->buttonDown = 0;
-    m->controller->buttonPressed = 0;
+    const bool minecraftAuthority =
+        um_passthrough_minecraft_authority() != 0;
+
+    // In ordinary gameplay Minecraft owns locomotion, so the N64 stick is
+    // completely neutral. During a native SM64 object/automatic/cutscene
+    // action we leave the original PC-port WASD stick intact so Bowser,
+    // doors and other special actions can run their real state machines.
+    if (minecraftAuthority) {
+        m->controller->rawStickX = 0;
+        m->controller->rawStickY = 0;
+        m->controller->stickX = 0.0f;
+        m->controller->stickY = 0.0f;
+        m->controller->stickMag = 0.0f;
+        m->controller->buttonDown = 0;
+        m->controller->buttonPressed = 0;
+    }
 
     if (g_inventoryScreen) {
         g_semanticJumpPrev = false;
@@ -755,6 +764,8 @@ void um_passthrough_neutralize_controller(struct MarioState *m) {
         return;
     }
 
+    // Keep the same physical Minecraft controls even when native SM64 logic
+    // temporarily owns an action: Space=A, mouse attack/use=B, Shift=Z.
     const bool jump = key_down(VK_SPACE);
     const bool attack = key_down(VK_LBUTTON);
     const bool use = key_down(VK_RBUTTON);

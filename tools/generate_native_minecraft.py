@@ -377,6 +377,16 @@ void simulate_movement() {
 
     collide_horizontal(nextX, nextY, nextZ);
 
+    // Resolve native voxel collision axis by axis so placed blocks are solid.
+    if (player_intersects_any_block(nextX, gPlayer.y, gPlayer.z)) {
+        nextX = gPlayer.x;
+        gPlayer.vx = 0.0f;
+    }
+    if (player_intersects_any_block(nextX, gPlayer.y, nextZ)) {
+        nextZ = gPlayer.z;
+        gPlayer.vz = 0.0f;
+    }
+
     Surface *floor = nullptr;
     const float floorY = find_floor(
         nextX, nextY + PLAYER_HEIGHT, nextZ, &floor
@@ -405,6 +415,31 @@ void simulate_movement() {
         && nextY + PLAYER_HEIGHT >= ceilY) {
         nextY = ceilY - PLAYER_HEIGHT;
         gPlayer.vy = 0.0f;
+    }
+
+    for (const NativeBlock &b : gBlocks) {
+        const float bx0=b.x*BLOCK, bx1=bx0+BLOCK;
+        const float bz0=b.z*BLOCK, bz1=bz0+BLOCK;
+        if (nextX + PLAYER_RADIUS <= bx0 || nextX - PLAYER_RADIUS >= bx1
+            || nextZ + PLAYER_RADIUS <= bz0 || nextZ - PLAYER_RADIUS >= bz1) {
+            continue;
+        }
+
+        const float bottom=b.y*BLOCK;
+        const float top=bottom+BLOCK;
+
+        if (gPlayer.vy <= 0.0f
+            && gPlayer.y >= top - 25.0f
+            && nextY <= top) {
+            nextY = top;
+            gPlayer.vy = 0.0f;
+            gPlayer.onGround = true;
+        } else if (gPlayer.vy > 0.0f
+            && gPlayer.y + PLAYER_HEIGHT <= bottom + 25.0f
+            && nextY + PLAYER_HEIGHT >= bottom) {
+            nextY = bottom - PLAYER_HEIGHT;
+            gPlayer.vy = 0.0f;
+        }
     }
 
     // Never let an invalid collision query throw the native player into the void.
@@ -460,6 +495,7 @@ extern "C" void native_minecraft_tick(MarioState *m) {
     capture_mouse();
     update_hotbar_and_view();
     simulate_movement();
+    interact_blocks();
     native_minecraft_apply_proxy(m);
 }
 

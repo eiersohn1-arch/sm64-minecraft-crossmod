@@ -34,6 +34,7 @@ required = [
     ADAPTER / "sm64_passthrough.h",
     ADAPTER / "sm64_passthrough.cpp",
     ADAPTER / "um_mcpt_overlay.inc",
+    ADAPTER / "um_native_avatar.inc",
 ]
 missing = [str(p) for p in required if not p.is_file()]
 if missing:
@@ -46,6 +47,7 @@ shutil.copy2(REF / "ws.h", PC / "ws.h")
 # The SM64-specific glue is tracked directly in this repo.
 shutil.copy2(ADAPTER / "sm64_passthrough.h", PC / "sm64_passthrough.h")
 shutil.copy2(ADAPTER / "sm64_passthrough.cpp", PC / "sm64_passthrough.cpp")
+shutil.copy2(ADAPTER / "um_native_avatar.inc", GFX / "um_native_avatar.inc")
 shutil.copy2(ADAPTER / "um_mcpt_overlay.inc", GFX / "um_mcpt_overlay.inc")
 
 # Mario keeps its mission/interaction state machine, but while Minecraft owns
@@ -251,6 +253,7 @@ patch_once(
 patch_once(
     gfx,
     "static LARGE_INTEGER last_time, accumulated_time, frequency;\n",
+    '#include "um_native_avatar.inc"\n'
     '#include "um_mcpt_overlay.inc"\n\n'
     "static LARGE_INTEGER last_time, accumulated_time, frequency;\n",
 )

@@ -275,13 +275,47 @@ replace_once(
     '\t\tif (!placingGround) {\n',
 )
 
-# 1) GTA has a camera-near-head heuristic that can hide Steve.  For SM64 a
-# requested third-person view must always render the player model.
+# 1) Tobyn-style camera ownership: in normal SM64 gameplay Minecraft's
+# *actual* first/third-person camera is the source of truth.  Do not reconstruct
+# a GTA-style chase camera in the host and then force Minecraft back onto it.
 camera = CLIENT / "mixin" / "CameraMixin.java"
 replace_once(
     camera,
+    'import dev.rehan.passthrough.client.FrameExporter;\n',
+    'import dev.rehan.passthrough.Passthrough;\n'
+    'import dev.rehan.passthrough.client.FrameExporter;\n'
+    'import java.util.Locale;\n'
+    'import net.minecraft.client.CameraType;\n',
+)
+replace_once(
+    camera,
+    '\t\tHostState.Pose p = HostState.frame();\n'
+    '\t\tif (p == null) {\n'
+    '\t\t\treturn;\n'
+    '\t\t}\n\n'
+    '\t\tthis.xRot = p.pitch();\n',
+    '\t\tHostState.Pose p = HostState.frame();\n'
+    '\t\tif (p == null) {\n'
+    '\t\t\treturn;\n'
+    '\t\t}\n\n'
+    '\t\tif (p.drive()) {\n'
+    '\t\t\t// Vanilla Minecraft has already positioned this camera at the tail of\n'
+    '\t\t\t// alignWithEntity. Send that exact camera back to SM64, including\n'
+    '\t\t\t// Minecraft third-person wall collision and first-person eye height.\n'
+    '\t\t\tCamera actual = Minecraft.getInstance().gameRenderer.mainCamera();\n'
+    '\t\t\tVec3 at = actual.position();\n'
+    '\t\t\tboolean fp = Minecraft.getInstance().options.getCameraType() == CameraType.FIRST_PERSON;\n'
+    '\t\t\tPassthrough.events.accept(String.format(Locale.ROOT,\n'
+    '\t\t\t\t"{\\\"t\\\":\\\"mccam\\\",\\\"p\\\":[%.6f,%.6f,%.6f],\\\"r\\\":[%.4f,%.4f],\\\"fp\\\":%b}",\n'
+    '\t\t\t\tat.x, at.y, at.z, this.yRot, this.xRot, fp));\n'
+    '\t\t\treturn;\n'
+    '\t\t}\n\n'
+    '\t\tthis.xRot = p.pitch();\n',
+)
+replace_once(
+    camera,
     "this.detached = !p.firstPerson() && !inside;",
-    "this.detached = !p.firstPerson(); // SM64: requested third person always renders Steve",
+    "this.detached = !p.firstPerson(); // host-follow mode only; drive mode keeps vanilla Minecraft camera",
 )
 
 # 2) Feed real Minecraft movement and mouse look from the focused SM64 window.

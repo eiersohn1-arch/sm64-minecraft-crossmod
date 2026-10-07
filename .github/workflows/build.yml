@@ -19,7 +19,7 @@ jobs:
 
       - name: Validate integration tooling
         run: |
-          python -m py_compile             tools/bootstrap_um.py             tools/sync_um_reference.py             tools/patch_guest_for_sm64.py             tools/generate_sm64_host.py             tools/build_sm64.py             tools/patch_sm64_toolchain.py             tools/verify_clean_rebuild.py
+          python -m py_compile             tools/bootstrap_um.py             tools/sync_um_reference.py             tools/patch_guest_for_sm64.py             tools/generate_sm64_host.py             tools/build_sm64.py tools/verify_clean_rebuild.py
 
       - name: Reject old native-reimplementation path
         shell: bash
@@ -95,14 +95,14 @@ jobs:
       - name: Syntax-check host, raw input and D3D11 compositor
         shell: msys2 {0}
         run: |
-          cd vendor/sm64-port
-          COMMON="-DTARGET_PC=1 -DTARGET_WINDOWS=1 -DVERSION_US=1 -DAVOID_UB=1 -DNON_MATCHING=1 -DNO_SEGMENTED_MEMORY=1 -DUSE_SYSTEM_MALLOC=1 -D_LANGUAGE_C=1 -I. -Iinclude -Isrc -Isrc/pc -Isrc/pc/gfx"
+          cd vendor/sm64coopdx
+          COMMON="-DTARGET_PC=1 -DVERSION_US=1 -DAVOID_UB=1 -DNON_MATCHING=1 -D_LANGUAGE_C=1 -DWINSOCK -I. -Iinclude -Isrc -Isrc/pc -Isrc/pc/gfx -Isound -Ilib/lua/include -Ilib/coopnet/include $(sdl2-config --cflags)"
 
           g++ -std=gnu++17 -fsyntax-only $COMMON             src/pc/sm64_passthrough.cpp             src/pc/ws.cpp
 
           g++ -std=gnu++17 -fsyntax-only $COMMON -DENABLE_DX11=1             src/pc/gfx/gfx_dxgi.cpp             src/pc/gfx/gfx_direct3d11.cpp
 
-          gcc -std=gnu11 -fsyntax-only             -DTARGET_PC=1 -DTARGET_WINDOWS=1 -DVERSION_US=1             -DAVOID_UB=1 -DNON_MATCHING=1             -I. -Iinclude -Isrc -Isrc/pc             src/game/mario.c             src/game/camera.c             src/game/hud.c             src/pc/pc_main.c
+          gcc -std=gnu11 -fsyntax-only $COMMON             src/game/mario.c             src/game/camera.c             src/game/hud.c             src/pc/pc_main.c
 
       - name: Compile host adapter objects without retail ROM
         shell: msys2 {0}

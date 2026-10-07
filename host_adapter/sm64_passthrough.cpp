@@ -113,6 +113,18 @@ struct McPose {
 
 McPose g_mc;
 
+struct McCameraPose {
+    bool valid = false;
+    double x = 0.0;
+    double y = MC_Y0 + 1.62;
+    double z = 0.0;
+    float yaw = 0.0f;
+    float pitch = 0.0f;
+    bool firstPerson = false;
+};
+
+McCameraPose g_mcCamera;
+
 unsigned long long minecraft_block_key(int x, int y, int z) {
     const unsigned long long ux = static_cast<unsigned int>(x);
     const unsigned long long uy = static_cast<unsigned int>(y);
@@ -205,6 +217,29 @@ bool native_sm64_action_owns_player() {
 void poll_guest_messages() {
     std::string message;
     while (g_ws.poll(message)) {
+        if (message.find("\"t\":\"mccam\"") != std::string::npos) {
+            McCameraPose camera{};
+            const int matched = std::sscanf(
+                message.c_str(),
+                "{\"t\":\"mccam\",\"p\":[%lf,%lf,%lf],\"r\":[%f,%f]",
+                &camera.x, &camera.y, &camera.z,
+                &camera.yaw, &camera.pitch
+            );
+            camera.firstPerson =
+                message.find("\"fp\":true") != std::string::npos;
+            camera.valid = matched == 5
+                && std::isfinite(camera.x)
+                && std::isfinite(camera.y)
+                && std::isfinite(camera.z)
+                && std::isfinite(camera.yaw)
+                && std::isfinite(camera.pitch);
+            if (camera.valid) {
+                g_mcCamera = camera;
+                g_firstPerson = camera.firstPerson;
+            }
+            continue;
+        }
+
         if (message.find("\"t\":\"blocks\"") != std::string::npos) {
             apply_block_array(message, "set", true);
             apply_block_array(message, "clear", false);
@@ -451,6 +486,7 @@ void reset_collision_if_needed() {
     g_collisionSampled.clear();
     g_minecraftBlocks.clear();
     g_mc.valid = false;
+    g_mcCamera.valid = false;
     g_lastMirroredMarioHealth = -1;
     g_spawnSyncPending = true;
     g_driveDelayFrames = 10;
@@ -896,20 +932,54 @@ void um_passthrough_override_camera(void) {
         return;
     }
 
+    // Tobyn/crossover-bridge style: Minecraft's own camera is authoritative.
+    // This preserves vanilla first/third person framing and third-person wall
+    // collision instead of rebuilding a fixed chase camera in SM64.
+    if (g_mcCamera.valid) {
+        const float yaw = g_mcCamera.yaw * DEG_TO_RAD;
+        const float pitch = g_mcCamera.pitch * DEG_TO_RAD;
+        const float cp = std::cos(pitch);
+
+        const float fx = -std::sin(yaw) * cp;
+        const float fy = -std::sin(pitch);
+        const float fz = -std::cos(yaw) * cp;
+
+        Vec3f pos = {
+            static_cast<float>((g_mcCamera.x - g_worldOffsetX) * SCALE),
+            static_cast<float>((g_mcCamera.y - MC_Y0) * SCALE),
+            static_cast<float>(-(g_mcCamera.z - g_worldOffsetZ) * SCALE)
+        };
+        Vec3f focus = {
+            pos[0] + fx * 300.0f,
+            pos[1] + fy * 300.0f,
+            pos[2] + fz * 300.0f
+        };
+
+        vec3f_copy(gLakituState.curPos, pos);
+        vec3f_copy(gLakituState.pos, pos);
+        vec3f_copy(gLakituState.goalPos, pos);
+        vec3f_copy(gLakituState.curFocus, focus);
+        vec3f_copy(gLakituState.focus, focus);
+        vec3f_copy(gLakituState.goalFocus, focus);
+        vec3f_copy(gCamera->pos, pos);
+        vec3f_copy(gCamera->focus, focus);
+
+        gLakituState.roll = 0;
+        sFOVState.fov = 70.0f;
+        sFOVState.fovOffset = 0.0f;
+        return;
+    }
+
+    // Startup fallback before Minecraft has published its first real camera.
     const float yaw = g_mc.yaw * DEG_TO_RAD;
     const float pitch = g_mc.pitch * DEG_TO_RAD;
     const float cp = std::cos(pitch);
-
     const float fx = -std::sin(yaw) * cp;
     const float fy = -std::sin(pitch);
     const float fz = -std::cos(yaw) * cp;
-
     const float eyeX = static_cast<float>((g_mc.x - g_worldOffsetX) * SCALE);
-    const float eyeY = static_cast<float>(
-        (g_mc.y - MC_Y0 + 1.62) * SCALE
-    );
+    const float eyeY = static_cast<float>((g_mc.y - MC_Y0 + 1.62) * SCALE);
     const float eyeZ = static_cast<float>(-(g_mc.z - g_worldOffsetZ) * SCALE);
-
     const float distance = g_firstPerson ? 0.0f : 400.0f;
 
     Vec3f pos = {
@@ -931,7 +1001,6 @@ void um_passthrough_override_camera(void) {
     vec3f_copy(gLakituState.goalFocus, focus);
     vec3f_copy(gCamera->pos, pos);
     vec3f_copy(gCamera->focus, focus);
-
     gLakituState.roll = 0;
     sFOVState.fov = 70.0f;
     sFOVState.fovOffset = 0.0f;

@@ -64,6 +64,7 @@ const std::vector<NmBlock> &nm_current_blocks_const();
 
 void nm_input_begin_frame();
 void nm_input_end_frame();
+void nm_input_update_pointer_lock();
 bool nm_key_down(int vk);
 bool nm_key_pressed(int vk);
 

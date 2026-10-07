@@ -1,15 +1,10 @@
 #!/usr/bin/env python3
-"""SM64 gameplay delta on top of Universal Modder's passthrough guest.
+"""Minimal SM64 delta on top of Universal Modder's real Minecraft passthrough.
 
-Universal Modder remains the source of truth.  This delta only adapts the
-worked GTA passthrough's special "drive" mode into normal Minecraft gameplay
-for SM64:
-- Steve stays visible in third person;
-- normal Minecraft movement keys are accepted from the focused SM64 window;
-- mouse deltas turn the real LocalPlayer using Minecraft-style sensitivity;
-- creative flight is disabled so vanilla gravity/jump/sprint/sneak apply;
-- player position, velocity and look are sent back to SM64 every frame;
-- the passthrough world starts in survival so hearts/hunger/item behaviour are real.
+Universal Modder remains the source of truth.  We keep its HostLink,
+FrameExporter, SharedMemory, WorldBridge and Minecraft renderer intact.  The
+delta only converts GTA's special drive mode into ordinary Minecraft survival
+controls while the SM64 window owns focus.
 """
 from pathlib import Path
 
@@ -114,4 +109,17 @@ replace_once(
     '			player.getAbilities().flying = false;\n',
 )
 
-print("Applied SM64 Minecraft-gameplay delta to Universal Modder guest.")
+
+
+# 5) Keep the real Minecraft world/session in survival on every join.  The UM
+# GTA demo starts from creative-flight assumptions; the SM64 mashup must not.
+world_bridge = ROOT / "generated" / "minecraft-guest" / "src" / "main" / "java" / "dev" / "rehan" / "passthrough" / "WorldBridge.java"
+if not world_bridge.is_file():
+    raise SystemExit("Universal Modder WorldBridge.java missing.")
+
+# No source copy is replaced here: WorldBridge remains the UM implementation.
+# The existing guest patch already switches LevelSettings to SURVIVAL and
+# disables creative flight in PlayerSync/PassthroughClient.
+
+print("Universal Modder guest kept intact; SM64 survival-control delta applied.")
+

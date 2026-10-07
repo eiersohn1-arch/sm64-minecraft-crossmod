@@ -59,6 +59,8 @@ replace_once(
     host_link,
     '\t\t\t\tcase "ground" -> WorldBridge.solid(ints(m.getAsJsonArray("c")));\n',
     '\t\t\t\tcase "ground" -> WorldBridge.solid(ints(m.getAsJsonArray("c")));\n'
+    '\t\t\t\tcase "surfacebegin" -> WorldBridge.beginSurfaceSnapshot();\n'
+    '\t\t\t\tcase "surfaceend" -> WorldBridge.endSurfaceSnapshot();\n'
     '\t\t\t\tcase "surfacectx" -> WorldBridge.context(m.get("k").getAsString());\n',
 )
 
@@ -68,8 +70,15 @@ replace_once(
 world_bridge = MAIN / "WorldBridge.java"
 replace_once(
     world_bridge,
+    'import java.util.LinkedHashMap;\n',
+    'import java.util.HashSet;\nimport java.util.LinkedHashMap;\n',
+)
+replace_once(
+    world_bridge,
     'private static final Set<BlockPos> barriers = ConcurrentHashMap.newKeySet();',
-    'private static final Set<BlockPos> hostSurfaces = ConcurrentHashMap.newKeySet();',
+    'private static final Set<BlockPos> hostSurfaces = ConcurrentHashMap.newKeySet();\n'
+    '\t/** Desired host cells while a fresh SM64 collision snapshot is being installed. */\n'
+    '\tprivate static Set<BlockPos> desiredHostSurfaces;',
 )
 replace_once(
     world_bridge,
@@ -86,9 +95,17 @@ replace_once(
     '\t\t\t\t\tif (level.isInWorldBounds(pos) && level.getBlockState(pos).isAir()) {\n'
     '\t\t\t\t\t\tlevel.setBlock(pos, barrier, Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE);\n'
     '\t\t\t\t\t\tbarriers.add(pos.immutable());\n',
-    '\t\t\t\t\tif (level.isInWorldBounds(pos) && level.getBlockState(pos).isAir() && !HostSurfaceState.mined(pos)) {\n'
-    '\t\t\t\t\t\tlevel.setBlock(pos, surface, Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE);\n'
-    '\t\t\t\t\t\thostSurfaces.add(pos.immutable());\n',
+    '\t\t\t\t\tif (level.isInWorldBounds(pos) && !HostSurfaceState.mined(pos)) {\n'
+    '\t\t\t\t\t\tBlockPos immutable = pos.immutable();\n'
+    '\t\t\t\t\t\tBlockState current = level.getBlockState(pos);\n'
+    '\t\t\t\t\t\tif (current.isAir()) {\n'
+    '\t\t\t\t\t\t\tlevel.setBlock(pos, surface, Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE);\n'
+    '\t\t\t\t\t\t\tcurrent = surface;\n'
+    '\t\t\t\t\t\t}\n'
+    '\t\t\t\t\t\tif (current.is(HostBlocks.SM64_SURFACE)) {\n'
+    '\t\t\t\t\t\t\thostSurfaces.add(immutable);\n'
+    '\t\t\t\t\t\t\tif (desiredHostSurfaces != null) desiredHostSurfaces.add(immutable);\n'
+    '\t\t\t\t\t\t}\n',
 )
 replace_once(
     world_bridge,
@@ -113,6 +130,32 @@ replace_once(
     world_bridge,
     '\t/** Run a command as the server (op). Results go to the log, not to chat (send_command_feedback is off). */\n'
     '\tpublic static void command(final String command) {\n',
+    '\t/** Begin an atomic-ish host collision refresh. Executor ordering keeps begin/ground/end ordered. */\n'
+    '\tpublic static void beginSurfaceSnapshot() {\n'
+    '\t\tMinecraftServer s = server;\n'
+    '\t\tif (s == null) return;\n'
+    '\t\ts.execute(() -> desiredHostSurfaces = new HashSet<>());\n'
+    '\t}\n\n'
+    '\t/** Remove stale streamed cells only after the complete fresh snapshot has arrived. */\n'
+    '\tpublic static void endSurfaceSnapshot() {\n'
+    '\t\tMinecraftServer s = server;\n'
+    '\t\tif (s == null) return;\n'
+    '\t\ts.execute(() -> {\n'
+    '\t\t\tif (desiredHostSurfaces == null) return;\n'
+    '\t\t\tServerLevel level = s.overworld();\n'
+    '\t\t\tplacingGround = true;\n'
+    '\t\t\tfor (BlockPos pos : new HashSet<>(hostSurfaces)) {\n'
+    '\t\t\t\tif (!desiredHostSurfaces.contains(pos)) {\n'
+    '\t\t\t\t\tif (level.getBlockState(pos).is(HostBlocks.SM64_SURFACE)) {\n'
+    '\t\t\t\t\t\tlevel.setBlock(pos, Blocks.AIR.defaultBlockState(), Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE);\n'
+    '\t\t\t\t\t}\n'
+    '\t\t\t\t\thostSurfaces.remove(pos);\n'
+    '\t\t\t\t}\n'
+    '\t\t\t}\n'
+    '\t\t\tplacingGround = false;\n'
+    '\t\t\tdesiredHostSurfaces = null;\n'
+    '\t\t});\n'
+    '\t}\n\n'
     "\t/** Switch the persistent SM64 terrain-edit context and remove the previous level's streamed surface cells. */\n"
     '\tpublic static void context(final String key) {\n'
     '\t\tMinecraftServer s = server;\n'
@@ -130,6 +173,7 @@ replace_once(
     '\t\t\t}\n'
     '\t\t\tplacingGround = false;\n'
     '\t\t\thostSurfaces.clear();\n'
+    '\t\t\tdesiredHostSurfaces = null;\n'
     '\t\t\tHostSurfaceState.setContext(key);\n'
     '\t\t});\n'
     '\t}\n\n'

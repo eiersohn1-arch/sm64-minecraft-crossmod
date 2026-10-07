@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-"""Generate a one-process Minecraft-like runtime directly inside sm64-port.
+"""Install the modular one-process Minecraft runtime into a clean sm64-port.
 
 Universal Modder mashup Pattern 4: reimplement, then fuse.
-No Fabric guest, WebSocket, shared memory or second game process is used.
+The real C++ sources live in native_runtime/. This script only copies them into
+sm64-port and installs the small host hooks required by the fusion.
 """
 
 from pathlib import Path
+import shutil
 
 ROOT = Path(__file__).resolve().parents[1]
 SM64 = ROOT / "vendor" / "sm64-port"
+RUNTIME = ROOT / "native_runtime"
 PC = SM64 / "src" / "pc"
-GFX = PC / "gfx"
 NM = PC / "native_minecraft"
+GFX = PC / "gfx"
 
 
 def patch_once(path: Path, old: str, new: str) -> None:
@@ -23,978 +26,68 @@ def patch_once(path: Path, old: str, new: str) -> None:
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 
-if not (SM64 / "src" / "game" / "mario.c").is_file():
-    raise SystemExit("Run setup-windows.bat first.")
-
-NM.mkdir(parents=True, exist_ok=True)
-
-(NM / "native_minecraft.h").write_text(r'''#pragma once
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-struct MarioState;
-
-void native_minecraft_tick(struct MarioState *m);
-void native_minecraft_apply_proxy(struct MarioState *m);
-void native_minecraft_override_camera(void);
-int native_minecraft_active(void);
-int native_minecraft_first_person(void);
-int native_minecraft_selected_slot(void);
-int native_minecraft_block_count(void);
-int native_minecraft_get_block(int index, int *x, int *y, int *z, int *type);
-void native_minecraft_get_render_state(
-    float *x, float *y, float *z,
-    float *yaw, float *pitch,
-    int *first_person, int *selected_slot
-);
-
-#ifdef __cplusplus
-}
-#endif
-''', encoding="utf-8")
-
-(NM / "native_minecraft.cpp").write_text(r'''#include "native_minecraft.h"
-
-#include <algorithm>
-#include <cmath>
-#include <cstdint>
-#include <vector>
-
-#define WIN32_LEAN_AND_MEAN
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#ifdef near
-#undef near
-#endif
-#ifdef far
-#undef far
-#endif
-
-extern "C" {
-#include "sm64.h"
-#include "engine/math_util.h"
-#include "engine/surface_collision.h"
-#include "game/area.h"
-#include "game/camera.h"
-#include "game/level_update.h"
-#include "game/mario.h"
-}
-
-namespace {
-
-constexpr float BLOCK = 100.0f;
-constexpr float PLAYER_RADIUS = 30.0f;
-constexpr float PLAYER_HEIGHT = 180.0f;
-constexpr float EYE_HEIGHT = 162.0f;
-
-// Minecraft Java movement approximated at SM64's 30 Hz host tick.
-constexpr float WALK_SPEED = 14.3f;
-constexpr float SPRINT_SPEED = 18.3f;
-constexpr float SNEAK_SPEED = 4.3f;
-constexpr float AIR_ACCEL = 2.0f;
-constexpr float GROUND_ACCEL = 6.5f;
-constexpr float GRAVITY = 5.35f;
-constexpr float JUMP_VELOCITY = 28.0f;
-constexpr float MAX_FALL = 78.0f;
-
-struct NativePlayer {
-    bool initialized = false;
-    bool firstPerson = false;
-    bool onGround = false;
-    int level = -1;
-    int area = -1;
-    int selectedSlot = 0;
-
-    float x = 0.0f;
-    float y = 0.0f;
-    float z = 0.0f;
-    float vx = 0.0f;
-    float vy = 0.0f;
-    float vz = 0.0f;
-    float yaw = 0.0f;
-    float pitch = 0.0f;
-};
-
-NativePlayer gPlayer;
-
-struct NativeBlock {
-    int x;
-    int y;
-    int z;
-    int type;
-};
-
-std::vector<NativeBlock> gBlocks;
-
-bool host_has_focus() {
-    HWND hwnd = GetForegroundWindow();
-    if (!hwnd) return false;
-    DWORD pid = 0;
-    GetWindowThreadProcessId(hwnd, &pid);
-    return pid == GetCurrentProcessId();
-}
-
-bool key_down(int vk) {
-    return host_has_focus() && (GetAsyncKeyState(vk) & 0x8000) != 0;
-}
-
-bool key_pressed(int vk) {
-    return host_has_focus() && (GetAsyncKeyState(vk) & 0x0001) != 0;
-}
-
-float radians(float degrees) {
-    return degrees * 0.01745329251994329577f;
-}
-
-int block_index_at(int bx, int by, int bz) {
-    for (int i = 0; i < (int)gBlocks.size(); ++i) {
-        const NativeBlock &b = gBlocks[(size_t)i];
-        if (b.x == bx && b.y == by && b.z == bz) return i;
-    }
-    return -1;
-}
-
-bool player_intersects_block(float px, float py, float pz, const NativeBlock &b) {
-    const float minX = px - PLAYER_RADIUS;
-    const float maxX = px + PLAYER_RADIUS;
-    const float minY = py;
-    const float maxY = py + PLAYER_HEIGHT;
-    const float minZ = pz - PLAYER_RADIUS;
-    const float maxZ = pz + PLAYER_RADIUS;
-
-    const float bx0 = b.x * BLOCK;
-    const float by0 = b.y * BLOCK;
-    const float bz0 = b.z * BLOCK;
-    const float bx1 = bx0 + BLOCK;
-    const float by1 = by0 + BLOCK;
-    const float bz1 = bz0 + BLOCK;
-
-    return maxX > bx0 && minX < bx1
-        && maxY > by0 && minY < by1
-        && maxZ > bz0 && minZ < bz1;
-}
-
-bool player_intersects_any_block(float px, float py, float pz) {
-    for (const NativeBlock &b : gBlocks) {
-        if (player_intersects_block(px, py, pz, b)) return true;
-    }
-    return false;
-}
-
-bool place_block(int bx, int by, int bz, int type) {
-    if ((int)gBlocks.size() >= 2048 || block_index_at(bx,by,bz) >= 0) {
-        return false;
-    }
-    NativeBlock candidate{bx,by,bz,type};
-    if (player_intersects_block(gPlayer.x,gPlayer.y,gPlayer.z,candidate)) {
-        return false;
-    }
-    gBlocks.push_back(candidate);
-    return true;
-}
-
-void interact_blocks() {
-    const bool breakPressed = key_pressed(VK_LBUTTON);
-    const bool placePressed = key_pressed(VK_RBUTTON);
-    if (!breakPressed && !placePressed) return;
-
-    const float yaw = radians(gPlayer.yaw);
-    const float pitch = radians(gPlayer.pitch);
-    const float cp = std::cos(pitch);
-    const float dx = -std::sin(yaw) * cp;
-    const float dy = -std::sin(pitch);
-    const float dz = -std::cos(yaw) * cp;
-
-    const float ox = gPlayer.x;
-    const float oy = gPlayer.y + EYE_HEIGHT;
-    const float oz = gPlayer.z;
-
-    int prevX = (int)std::floor(ox / BLOCK);
-    int prevY = (int)std::floor(oy / BLOCK);
-    int prevZ = (int)std::floor(oz / BLOCK);
-
-    for (float t = 20.0f; t <= 600.0f; t += 12.0f) {
-        const float px = ox + dx * t;
-        const float py = oy + dy * t;
-        const float pz = oz + dz * t;
-        const int bx = (int)std::floor(px / BLOCK);
-        const int by = (int)std::floor(py / BLOCK);
-        const int bz = (int)std::floor(pz / BLOCK);
-
-        const int hit = block_index_at(bx,by,bz);
-        if (hit >= 0) {
-            if (breakPressed) {
-                gBlocks.erase(gBlocks.begin() + hit);
-            } else if (placePressed) {
-                place_block(prevX,prevY,prevZ,gPlayer.selectedSlot + 1);
-            }
-            return;
-        }
-
-        Surface *floor = nullptr;
-        const float floorY = find_floor(px, py + 30.0f, pz, &floor);
-        if (placePressed && floor != nullptr && floorY > FLOOR_LOWER_LIMIT
-            && py <= floorY + 22.0f && py >= floorY - 36.0f) {
-            const int fy = (int)std::floor((floorY + 2.0f) / BLOCK);
-            place_block(bx,fy,bz,gPlayer.selectedSlot + 1);
-            return;
-        }
-
-        prevX = bx;
-        prevY = by;
-        prevZ = bz;
-    }
-}
-
-void capture_mouse() {
-    if (!host_has_focus()) return;
-
-    HWND hwnd = GetForegroundWindow();
-    RECT rect{};
-    if (!hwnd || !GetClientRect(hwnd, &rect)) return;
-
-    POINT center{
-        (rect.right - rect.left) / 2,
-        (rect.bottom - rect.top) / 2
-    };
-    POINT screenCenter = center;
-    ClientToScreen(hwnd, &screenCenter);
-
-    POINT cursor{};
-    if (!GetCursorPos(&cursor)) return;
-
-    const int dx = cursor.x - screenCenter.x;
-    const int dy = cursor.y - screenCenter.y;
-
-    // Close to the vanilla default sensitivity feel, but native and stable.
-    constexpr float SENSITIVITY = 0.15f;
-    gPlayer.yaw += static_cast<float>(dx) * SENSITIVITY;
-    gPlayer.pitch += static_cast<float>(dy) * SENSITIVITY;
-    gPlayer.pitch = std::clamp(gPlayer.pitch, -89.0f, 89.0f);
-
-    while (gPlayer.yaw >= 180.0f) gPlayer.yaw -= 360.0f;
-    while (gPlayer.yaw < -180.0f) gPlayer.yaw += 360.0f;
-
-    SetCursorPos(screenCenter.x, screenCenter.y);
-}
-
-void initialize_from_mario(MarioState *m) {
-    gPlayer.initialized = true;
-    gPlayer.level = gCurrLevelNum;
-    gPlayer.area = gCurrAreaIndex;
-    gPlayer.x = m->pos[0];
-    gPlayer.y = m->pos[1];
-    gPlayer.z = m->pos[2];
-    gPlayer.vx = gPlayer.vy = gPlayer.vz = 0.0f;
-    gPlayer.yaw =
-        180.0f - static_cast<float>(m->faceAngle[1]) * (360.0f / 65536.0f);
-    gPlayer.pitch = 0.0f;
-    gPlayer.onGround = true;
-}
-
-void update_hotbar_and_view() {
-    for (int i = 0; i < 9; ++i) {
-        if (key_pressed('1' + i)) {
-            gPlayer.selectedSlot = i;
-        }
-    }
-    if (key_pressed(VK_F5)) {
-        gPlayer.firstPerson = !gPlayer.firstPerson;
-    }
-}
-
-void collide_horizontal(float &x, float &y, float &z) {
-    WallCollisionData walls{};
-    walls.x = x;
-    walls.y = y;
-    walls.z = z;
-    walls.offsetY = PLAYER_HEIGHT * 0.5f;
-    walls.radius = PLAYER_RADIUS;
-    find_wall_collisions(&walls);
-    x = walls.x;
-    y = walls.y;
-    z = walls.z;
-}
-
-void simulate_movement() {
-    const bool forward = key_down('W');
-    const bool backward = key_down('S');
-    const bool left = key_down('A');
-    const bool right = key_down('D');
-    const bool sneak = key_down(VK_SHIFT);
-    const bool sprint = key_down(VK_CONTROL) && forward && !sneak;
-
-    float inputForward = (forward ? 1.0f : 0.0f) - (backward ? 1.0f : 0.0f);
-    float inputStrafe = (right ? 1.0f : 0.0f) - (left ? 1.0f : 0.0f);
-
-    float length = std::sqrt(
-        inputForward * inputForward + inputStrafe * inputStrafe
-    );
-    if (length > 1.0f) {
-        inputForward /= length;
-        inputStrafe /= length;
-    }
-
-    const float speed = sneak
-        ? SNEAK_SPEED
-        : (sprint ? SPRINT_SPEED : WALK_SPEED);
-
-    const float yaw = radians(gPlayer.yaw);
-    const float sinYaw = std::sin(yaw);
-    const float cosYaw = std::cos(yaw);
-
-    const float wishX =
-        (-sinYaw * inputForward + cosYaw * inputStrafe) * speed;
-    const float wishZ =
-        ( cosYaw * inputForward + sinYaw * inputStrafe) * speed;
-
-    const float accel = gPlayer.onGround ? GROUND_ACCEL : AIR_ACCEL;
-    gPlayer.vx += std::clamp(wishX - gPlayer.vx, -accel, accel);
-    gPlayer.vz += std::clamp(wishZ - gPlayer.vz, -accel, accel);
-
-    if (length == 0.0f && gPlayer.onGround) {
-        gPlayer.vx *= 0.60f;
-        gPlayer.vz *= 0.60f;
-        if (std::fabs(gPlayer.vx) < 0.02f) gPlayer.vx = 0.0f;
-        if (std::fabs(gPlayer.vz) < 0.02f) gPlayer.vz = 0.0f;
-    }
-
-    if (gPlayer.onGround && key_pressed(VK_SPACE)) {
-        gPlayer.vy = JUMP_VELOCITY;
-        gPlayer.onGround = false;
-    } else {
-        const float falling = gPlayer.vy - GRAVITY;
-        gPlayer.vy = falling > -MAX_FALL ? falling : -MAX_FALL;
-    }
-
-    float nextX = gPlayer.x + gPlayer.vx;
-    float nextY = gPlayer.y + gPlayer.vy;
-    float nextZ = gPlayer.z + gPlayer.vz;
-
-    collide_horizontal(nextX, nextY, nextZ);
-
-    // Resolve native voxel collision axis by axis so placed blocks are solid.
-    if (player_intersects_any_block(nextX, gPlayer.y, gPlayer.z)) {
-        nextX = gPlayer.x;
-        gPlayer.vx = 0.0f;
-    }
-    if (player_intersects_any_block(nextX, gPlayer.y, nextZ)) {
-        nextZ = gPlayer.z;
-        gPlayer.vz = 0.0f;
-    }
-
-    Surface *floor = nullptr;
-    const float floorY = find_floor(
-        nextX, nextY + PLAYER_HEIGHT, nextZ, &floor
-    );
-
-    Surface *ceil = nullptr;
-    const float ceilY = find_ceil(
-        nextX, nextY + 80.0f, nextZ, &ceil
-    );
-
-    if (gPlayer.vy <= 0.0f
-        && floor != nullptr
-        && floorY > FLOOR_LOWER_LIMIT
-        && nextY <= floorY + 18.0f
-        && gPlayer.y >= floorY - 80.0f) {
-        nextY = floorY;
-        gPlayer.vy = 0.0f;
-        gPlayer.onGround = true;
-    } else {
-        gPlayer.onGround = false;
-    }
-
-    if (gPlayer.vy > 0.0f
-        && ceil != nullptr
-        && ceilY < CELL_HEIGHT_LIMIT
-        && nextY + PLAYER_HEIGHT >= ceilY) {
-        nextY = ceilY - PLAYER_HEIGHT;
-        gPlayer.vy = 0.0f;
-    }
-
-    for (const NativeBlock &b : gBlocks) {
-        const float bx0=b.x*BLOCK, bx1=bx0+BLOCK;
-        const float bz0=b.z*BLOCK, bz1=bz0+BLOCK;
-        if (nextX + PLAYER_RADIUS <= bx0 || nextX - PLAYER_RADIUS >= bx1
-            || nextZ + PLAYER_RADIUS <= bz0 || nextZ - PLAYER_RADIUS >= bz1) {
-            continue;
-        }
-
-        const float bottom=b.y*BLOCK;
-        const float top=bottom+BLOCK;
-
-        if (gPlayer.vy <= 0.0f
-            && gPlayer.y >= top - 25.0f
-            && nextY <= top) {
-            nextY = top;
-            gPlayer.vy = 0.0f;
-            gPlayer.onGround = true;
-        } else if (gPlayer.vy > 0.0f
-            && gPlayer.y + PLAYER_HEIGHT <= bottom + 25.0f
-            && nextY + PLAYER_HEIGHT >= bottom) {
-            nextY = bottom - PLAYER_HEIGHT;
-            gPlayer.vy = 0.0f;
-        }
-    }
-
-    // Never let an invalid collision query throw the native player into the void.
-    if (floor == nullptr && nextY < gPlayer.y - 300.0f) {
-        nextX = gPlayer.x;
-        nextY = gPlayer.y;
-        nextZ = gPlayer.z;
-        gPlayer.vx = gPlayer.vy = gPlayer.vz = 0.0f;
-    }
-
-    gPlayer.x = nextX;
-    gPlayer.y = nextY;
-    gPlayer.z = nextZ;
-}
-
-} // namespace
-
-extern "C" int native_minecraft_active(void) {
-    return gPlayer.initialized ? 1 : 0;
-}
-
-extern "C" int native_minecraft_first_person(void) {
-    return gPlayer.firstPerson ? 1 : 0;
-}
-
-extern "C" int native_minecraft_selected_slot(void) {
-    return gPlayer.selectedSlot;
-}
-
-extern "C" int native_minecraft_block_count(void) {
-    return (int)gBlocks.size();
-}
-
-extern "C" int native_minecraft_get_block(
-    int index, int *x, int *y, int *z, int *type
-) {
-    if (index < 0 || index >= (int)gBlocks.size()) return 0;
-    const NativeBlock &b = gBlocks[(size_t)index];
-    if (x) *x = b.x;
-    if (y) *y = b.y;
-    if (z) *z = b.z;
-    if (type) *type = b.type;
-    return 1;
-}
-
-extern "C" void native_minecraft_get_render_state(
-    float *x, float *y, float *z,
-    float *yaw, float *pitch,
-    int *first_person, int *selected_slot
-) {
-    if (x) *x = gPlayer.x;
-    if (y) *y = gPlayer.y;
-    if (z) *z = gPlayer.z;
-    if (yaw) *yaw = gPlayer.yaw;
-    if (pitch) *pitch = gPlayer.pitch;
-    if (first_person) *first_person = gPlayer.firstPerson ? 1 : 0;
-    if (selected_slot) *selected_slot = gPlayer.selectedSlot;
-}
-
-extern "C" void native_minecraft_tick(MarioState *m) {
-    if (!m || !m->marioObj || gCurrentArea == nullptr) return;
-
-    if (!gPlayer.initialized
-        || gPlayer.level != gCurrLevelNum
-        || gPlayer.area != gCurrAreaIndex) {
-        initialize_from_mario(m);
-    }
-
-    capture_mouse();
-    update_hotbar_and_view();
-    simulate_movement();
-    interact_blocks();
-    native_minecraft_apply_proxy(m);
-}
-
-extern "C" void native_minecraft_apply_proxy(MarioState *m) {
-    if (!m || !m->marioObj || !gPlayer.initialized) return;
-
-    Surface *floor = nullptr;
-    const float floorY = find_floor(
-        gPlayer.x, gPlayer.y + PLAYER_HEIGHT, gPlayer.z, &floor
-    );
-    if (floor == nullptr || floorY <= FLOOR_LOWER_LIMIT) {
-        return;
-    }
-
-    constexpr float ANGLE = 65536.0f / 360.0f;
-    const float sm64Yaw = 180.0f - gPlayer.yaw;
-
-    m->pos[0] = gPlayer.x;
-    m->pos[1] = gPlayer.y;
-    m->pos[2] = gPlayer.z;
-    m->vel[0] = gPlayer.vx;
-    m->vel[1] = gPlayer.vy;
-    m->vel[2] = gPlayer.vz;
-    m->forwardVel = std::sqrt(
-        gPlayer.vx * gPlayer.vx + gPlayer.vz * gPlayer.vz
-    );
-    m->faceAngle[0] = 0;
-    m->faceAngle[1] = static_cast<s16>(sm64Yaw * ANGLE);
-    m->faceAngle[2] = 0;
-    m->floor = floor;
-    m->floorHeight = floorY;
-
-    m->marioObj->oPosX = m->pos[0];
-    m->marioObj->oPosY = m->pos[1];
-    m->marioObj->oPosZ = m->pos[2];
-    m->marioObj->header.gfx.pos[0] = m->pos[0];
-    m->marioObj->header.gfx.pos[1] = m->pos[1];
-    m->marioObj->header.gfx.pos[2] = m->pos[2];
-    m->marioObj->header.gfx.angle[1] = m->faceAngle[1];
-
-    // Mario remains the invisible SM64 trigger/warp/star proxy.
-    m->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;
-}
-
-extern "C" void native_minecraft_override_camera(void) {
-    if (!gPlayer.initialized || gCamera == nullptr) return;
-
-    const float yaw = radians(gPlayer.yaw);
-    const float pitch = radians(gPlayer.pitch);
-    const float cp = std::cos(pitch);
-
-    const float fx = -std::sin(yaw) * cp;
-    const float fy = -std::sin(pitch);
-    const float fz = -std::cos(yaw) * cp;
-
-    const float eyeX = gPlayer.x;
-    const float eyeY = gPlayer.y + EYE_HEIGHT;
-    const float eyeZ = gPlayer.z;
-
-    const float distance = gPlayer.firstPerson ? 0.0f : 400.0f;
-
-    Vec3f pos = {
-        eyeX - fx * distance,
-        eyeY - fy * distance,
-        eyeZ - fz * distance,
-    };
-    Vec3f focus = {
-        eyeX + fx * 200.0f,
-        eyeY + fy * 200.0f,
-        eyeZ + fz * 200.0f,
-    };
-
-    vec3f_copy(gLakituState.curPos, pos);
-    vec3f_copy(gLakituState.pos, pos);
-    vec3f_copy(gLakituState.goalPos, pos);
-    vec3f_copy(gLakituState.curFocus, focus);
-    vec3f_copy(gLakituState.focus, focus);
-    vec3f_copy(gLakituState.goalFocus, focus);
-    vec3f_copy(gCamera->pos, pos);
-    vec3f_copy(gCamera->focus, focus);
-    gLakituState.roll = 0;
-}
-''', encoding="utf-8")
-
-# A small native D3D11 renderer: blocky Steve in third person plus Minecraft-like
-# first-person arm, crosshair and nine-slot hotbar.  It intentionally uses flat
-# colours so no Mojang retail assets are committed.
-(GFX / "native_minecraft_render.inc").write_text(r'''
-struct NmVertex {
-    float x, y, z;
-    float r, g, b, a;
-};
-
-struct NmPoint {
-    float x, y, z;
-};
-
-struct NmFace {
-    NmVertex v[6];
-    float depth;
-};
-
-static ComPtr<ID3D11VertexShader> nm_vs;
-static ComPtr<ID3D11PixelShader> nm_ps;
-static ComPtr<ID3D11InputLayout> nm_layout;
-static ComPtr<ID3D11Buffer> nm_vb;
-static ComPtr<ID3D11BlendState> nm_blend;
-static ComPtr<ID3D11DepthStencilState> nm_no_depth;
-static std::vector<NmVertex> nm_vertices;
-static std::vector<NmFace> nm_faces;
-static bool nm_pipeline_ready = false;
-
-static float nm_px, nm_py, nm_pz, nm_yaw, nm_pitch;
-static int nm_first_person, nm_slot;
-
-static void nm_push_tri(const NmVertex &a, const NmVertex &b, const NmVertex &c) {
-    nm_vertices.push_back(a);
-    nm_vertices.push_back(b);
-    nm_vertices.push_back(c);
-}
-
-static void nm_push_rect_ndc(float x0, float y0, float x1, float y1,
-                             float r, float g, float b, float a) {
-    NmVertex v0{x0,y0,0,r,g,b,a}, v1{x1,y0,0,r,g,b,a};
-    NmVertex v2{x1,y1,0,r,g,b,a}, v3{x0,y1,0,r,g,b,a};
-    nm_push_tri(v0,v1,v2);
-    nm_push_tri(v0,v2,v3);
-}
-
-static void nm_push_rect_px(float x, float y, float w, float h,
-                            float r, float g, float b, float a) {
-    const float ww = (float)d3d.current_width;
-    const float hh = (float)d3d.current_height;
-    const float x0 = x / ww * 2.0f - 1.0f;
-    const float x1 = (x+w) / ww * 2.0f - 1.0f;
-    const float y0 = 1.0f - y / hh * 2.0f;
-    const float y1 = 1.0f - (y+h) / hh * 2.0f;
-    nm_push_rect_ndc(x0,y0,x1,y1,r,g,b,a);
-}
-
-static bool nm_project(const NmPoint &p, NmVertex &out,
-                       float r, float g, float b, float a,
-                       float *depth_out) {
-    const float DEG = 0.01745329251994329577f;
-    const float yaw = nm_yaw * DEG;
-    const float pitch = nm_pitch * DEG;
-    const float cp = std::cos(pitch);
-
-    const NmPoint forward{
-        -std::sin(yaw) * cp,
-        -std::sin(pitch),
-        -std::cos(yaw) * cp
-    };
-    const NmPoint right{std::cos(yaw), 0.0f, -std::sin(yaw)};
-    const NmPoint up{
-        right.y * forward.z - right.z * forward.y,
-        right.z * forward.x - right.x * forward.z,
-        right.x * forward.y - right.y * forward.x
-    };
-
-    const float eyeX = nm_px;
-    const float eyeY = nm_py + 162.0f;
-    const float eyeZ = nm_pz;
-    const float distance = nm_first_person ? 0.0f : 400.0f;
-    const NmPoint cam{
-        eyeX - forward.x * distance,
-        eyeY - forward.y * distance,
-        eyeZ - forward.z * distance
-    };
-
-    const NmPoint rel{p.x-cam.x, p.y-cam.y, p.z-cam.z};
-    const float vx = rel.x*right.x + rel.y*right.y + rel.z*right.z;
-    const float vy = rel.x*up.x + rel.y*up.y + rel.z*up.z;
-    const float vz = rel.x*forward.x + rel.y*forward.y + rel.z*forward.z;
-    if (vz < 8.0f) return false;
-
-    const float tanHalf = std::tan(70.0f * DEG * 0.5f);
-    const float aspect = (float)d3d.current_width / (float)d3d.current_height;
-    out.x = vx / (vz * tanHalf * aspect);
-    out.y = vy / (vz * tanHalf);
-    out.z = 0.0f;
-    out.r=r; out.g=g; out.b=b; out.a=a;
-    if (depth_out) *depth_out = vz;
-    return out.x > -3.0f && out.x < 3.0f && out.y > -3.0f && out.y < 3.0f;
-}
-
-static NmPoint nm_rotate_local(float lx, float ly, float lz) {
-    const float a = (180.0f - nm_yaw) * 0.01745329251994329577f;
-    const float s = std::sin(a), co = std::cos(a);
-    return NmPoint{
-        nm_px + lx * co + lz * s,
-        nm_py + ly,
-        nm_pz - lx * s + lz * co
-    };
-}
-
-static void nm_add_box(float cx, float cy, float cz,
-                       float sx, float sy, float sz,
-                       float r, float g, float b) {
-    const float hx=sx*0.5f, hy=sy*0.5f, hz=sz*0.5f;
-    NmPoint p[8] = {
-        nm_rotate_local(cx-hx,cy-hy,cz-hz),
-        nm_rotate_local(cx+hx,cy-hy,cz-hz),
-        nm_rotate_local(cx+hx,cy+hy,cz-hz),
-        nm_rotate_local(cx-hx,cy+hy,cz-hz),
-        nm_rotate_local(cx-hx,cy-hy,cz+hz),
-        nm_rotate_local(cx+hx,cy-hy,cz+hz),
-        nm_rotate_local(cx+hx,cy+hy,cz+hz),
-        nm_rotate_local(cx-hx,cy+hy,cz+hz),
-    };
-    static const int faces[6][4] = {
-        {0,1,2,3},{5,4,7,6},{4,0,3,7},
-        {1,5,6,2},{3,2,6,7},{4,5,1,0}
-    };
-    for (int fi=0; fi<6; ++fi) {
-        NmVertex q[4];
-        float d[4];
-        bool ok=true;
-        for (int k=0;k<4;++k) {
-            if (!nm_project(p[faces[fi][k]],q[k],r,g,b,1.0f,&d[k])) {
-                ok=false;
-                break;
-            }
-        }
-        if (!ok) continue;
-        NmFace face{};
-        face.v[0]=q[0]; face.v[1]=q[1]; face.v[2]=q[2];
-        face.v[3]=q[0]; face.v[4]=q[2]; face.v[5]=q[3];
-        face.depth=(d[0]+d[1]+d[2]+d[3])*0.25f;
-        nm_faces.push_back(face);
-    }
-}
-
-static void nm_add_world_box(float cx, float cy, float cz,
-                             float sx, float sy, float sz,
-                             float r, float g, float b) {
-    const float hx=sx*0.5f, hy=sy*0.5f, hz=sz*0.5f;
-    NmPoint p[8] = {
-        {cx-hx,cy-hy,cz-hz},{cx+hx,cy-hy,cz-hz},
-        {cx+hx,cy+hy,cz-hz},{cx-hx,cy+hy,cz-hz},
-        {cx-hx,cy-hy,cz+hz},{cx+hx,cy-hy,cz+hz},
-        {cx+hx,cy+hy,cz+hz},{cx-hx,cy+hy,cz+hz},
-    };
-    static const int faces[6][4] = {
-        {0,1,2,3},{5,4,7,6},{4,0,3,7},
-        {1,5,6,2},{3,2,6,7},{4,5,1,0}
-    };
-    for (int fi=0; fi<6; ++fi) {
-        NmVertex q[4];
-        float d[4];
-        bool ok=true;
-        for (int k=0;k<4;++k) {
-            if (!nm_project(p[faces[fi][k]],q[k],r,g,b,1.0f,&d[k])) {
-                ok=false;
-                break;
-            }
-        }
-        if (!ok) continue;
-        NmFace face{};
-        face.v[0]=q[0]; face.v[1]=q[1]; face.v[2]=q[2];
-        face.v[3]=q[0]; face.v[4]=q[2]; face.v[5]=q[3];
-        face.depth=(d[0]+d[1]+d[2]+d[3])*0.25f;
-        nm_faces.push_back(face);
-    }
-}
-
-static void nm_build_blocks() {
-    const int count=native_minecraft_block_count();
-    for (int i=0;i<count;++i) {
-        int bx=0,by=0,bz=0,type=0;
-        if (!native_minecraft_get_block(i,&bx,&by,&bz,&type)) continue;
-
-        float r=0.45f,g=0.32f,b=0.18f;
-        switch (type) {
-            case 1: r=0.28f; g=0.62f; b=0.20f; break; // grass
-            case 2: r=0.52f; g=0.52f; b=0.52f; break; // stone
-            case 3: r=0.48f; g=0.30f; b=0.17f; break; // dirt
-            case 4: r=0.70f; g=0.53f; b=0.31f; break; // planks
-            case 5: r=0.38f; g=0.38f; b=0.40f; break; // cobble
-            case 6: r=0.55f; g=0.78f; b=0.82f; break; // glass-ish
-            case 7: r=0.78f; g=0.12f; b=0.10f; break; // TNT-ish
-            case 8: r=0.90f; g=0.75f; b=0.25f; break; // torch-ish
-            case 9: r=0.58f; g=0.20f; b=0.18f; break; // bricks
-        }
-        nm_add_world_box(
-            (bx+0.5f)*100.0f,
-            (by+0.5f)*100.0f,
-            (bz+0.5f)*100.0f,
-            98.0f,98.0f,98.0f,
-            r,g,b
-        );
-    }
-}
-
-static void nm_flush_faces() {
-    std::sort(nm_faces.begin(), nm_faces.end(),
-        [](const NmFace &a, const NmFace &b) { return a.depth > b.depth; });
-    for (const NmFace &f : nm_faces) {
-        for (int i=0;i<6;++i) nm_vertices.push_back(f.v[i]);
-    }
-}
-
-static void nm_build_steve() {
-    // Minecraft-like proportions in SM64 world units.
-    nm_add_box(0,156,0,50,50,50, 0.72f,0.52f,0.36f); // head
-    nm_add_box(0,111,0,60,70,30, 0.05f,0.55f,0.62f); // shirt
-    nm_add_box(-18,48,0,27,90,28, 0.12f,0.20f,0.55f);
-    nm_add_box( 18,48,0,27,90,28, 0.12f,0.20f,0.55f);
-    nm_add_box(-44,108,0,24,74,24, 0.72f,0.52f,0.36f);
-    nm_add_box( 44,108,0,24,74,24, 0.72f,0.52f,0.36f);
-
-}
-
-static void nm_build_hud() {
-    const float w=(float)d3d.current_width, h=(float)d3d.current_height;
-    const float slot=42.0f;
-    const float total=slot*9.0f;
-    const float x0=(w-total)*0.5f;
-    const float y=h-slot-18.0f;
-
-    for (int i=0;i<9;++i) {
-        const float x=x0+i*slot;
-        const bool selected=i==nm_slot;
-        nm_push_rect_px(x,y,slot-2,slot-2,
-            selected?0.88f:0.18f,
-            selected?0.88f:0.18f,
-            selected?0.88f:0.18f,
-            0.82f);
-        nm_push_rect_px(x+4,y+4,slot-10,slot-10,
-            0.16f + 0.055f*i,
-            0.42f,
-            0.18f + 0.035f*(8-i),
-            0.95f);
-    }
-
-    // crosshair
-    nm_push_rect_px(w*0.5f-1.0f,h*0.5f-8.0f,2.0f,16.0f,1,1,1,0.95f);
-    nm_push_rect_px(w*0.5f-8.0f,h*0.5f-1.0f,16.0f,2.0f,1,1,1,0.95f);
-
-    if (nm_first_person) {
-        // blocky first-person Steve arm
-        nm_push_rect_ndc(0.48f,-1.02f,0.98f,-0.40f,0.72f,0.52f,0.36f,1.0f);
-        nm_push_rect_ndc(0.55f,-0.80f,0.91f,-0.48f,0.05f,0.55f,0.62f,1.0f);
-    }
-}
-
-static bool nm_init_pipeline() {
-    if (nm_pipeline_ready) return true;
-
-    static const char *shader = R"(
-struct VSIn { float3 p:POSITION; float4 c:COLOR0; };
-struct VSOut { float4 p:SV_POSITION; float4 c:COLOR0; };
-VSOut VS(VSIn i) { VSOut o; o.p=float4(i.p,1); o.c=i.c; return o; }
-float4 PS(VSOut i):SV_TARGET { return i.c; }
-)";
-
-    ComPtr<ID3DBlob> vsb, psb, err;
-    if (FAILED(d3d.D3DCompile(shader,strlen(shader),"NM",nullptr,nullptr,
-        "VS","vs_4_0",D3DCOMPILE_OPTIMIZATION_LEVEL2,0,
-        vsb.GetAddressOf(),err.GetAddressOf()))) return false;
-    err.Reset();
-    if (FAILED(d3d.D3DCompile(shader,strlen(shader),"NM",nullptr,nullptr,
-        "PS","ps_4_0",D3DCOMPILE_OPTIMIZATION_LEVEL2,0,
-        psb.GetAddressOf(),err.GetAddressOf()))) return false;
-
-    if (FAILED(d3d.device->CreateVertexShader(
-        vsb->GetBufferPointer(),vsb->GetBufferSize(),nullptr,nm_vs.GetAddressOf()))) return false;
-    if (FAILED(d3d.device->CreatePixelShader(
-        psb->GetBufferPointer(),psb->GetBufferSize(),nullptr,nm_ps.GetAddressOf()))) return false;
-
-    D3D11_INPUT_ELEMENT_DESC desc[] = {
-        {"POSITION",0,DXGI_FORMAT_R32G32B32_FLOAT,0,0,D3D11_INPUT_PER_VERTEX_DATA,0},
-        {"COLOR",0,DXGI_FORMAT_R32G32B32A32_FLOAT,0,12,D3D11_INPUT_PER_VERTEX_DATA,0},
-    };
-    if (FAILED(d3d.device->CreateInputLayout(
-        desc,2,vsb->GetBufferPointer(),vsb->GetBufferSize(),nm_layout.GetAddressOf()))) return false;
-
-    D3D11_BUFFER_DESC bd{};
-    bd.ByteWidth=sizeof(NmVertex)*32768;
-    bd.Usage=D3D11_USAGE_DYNAMIC;
-    bd.BindFlags=D3D11_BIND_VERTEX_BUFFER;
-    bd.CPUAccessFlags=D3D11_CPU_ACCESS_WRITE;
-    if (FAILED(d3d.device->CreateBuffer(&bd,nullptr,nm_vb.GetAddressOf()))) return false;
-
-    D3D11_BLEND_DESC blend{};
-    blend.RenderTarget[0].BlendEnable=TRUE;
-    blend.RenderTarget[0].SrcBlend=D3D11_BLEND_SRC_ALPHA;
-    blend.RenderTarget[0].DestBlend=D3D11_BLEND_INV_SRC_ALPHA;
-    blend.RenderTarget[0].BlendOp=D3D11_BLEND_OP_ADD;
-    blend.RenderTarget[0].SrcBlendAlpha=D3D11_BLEND_ONE;
-    blend.RenderTarget[0].DestBlendAlpha=D3D11_BLEND_INV_SRC_ALPHA;
-    blend.RenderTarget[0].BlendOpAlpha=D3D11_BLEND_OP_ADD;
-    blend.RenderTarget[0].RenderTargetWriteMask=D3D11_COLOR_WRITE_ENABLE_ALL;
-    if (FAILED(d3d.device->CreateBlendState(&blend,nm_blend.GetAddressOf()))) return false;
-
-    D3D11_DEPTH_STENCIL_DESC dd{};
-    dd.DepthEnable=FALSE;
-    dd.DepthWriteMask=D3D11_DEPTH_WRITE_MASK_ZERO;
-    dd.DepthFunc=D3D11_COMPARISON_ALWAYS;
-    if (FAILED(d3d.device->CreateDepthStencilState(&dd,nm_no_depth.GetAddressOf()))) return false;
-
-    nm_pipeline_ready=true;
-    return true;
-}
-
-static void nm_render_native_minecraft() {
-    if (!native_minecraft_active() || !nm_init_pipeline()) return;
-
-    native_minecraft_get_render_state(
-        &nm_px,&nm_py,&nm_pz,&nm_yaw,&nm_pitch,&nm_first_person,&nm_slot
-    );
-
-    nm_vertices.clear();
-    nm_vertices.reserve(8192);
-    nm_faces.clear();
-
-    nm_build_blocks();
-    if (!nm_first_person) nm_build_steve();
-    nm_flush_faces();
-    nm_build_hud();
-    if (nm_vertices.empty()) return;
-
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (FAILED(d3d.context->Map(nm_vb.Get(),0,D3D11_MAP_WRITE_DISCARD,0,&mapped))) return;
-    const size_t bytes=nm_vertices.size()*sizeof(NmVertex);
-    if (bytes > sizeof(NmVertex)*32768) {
-        d3d.context->Unmap(nm_vb.Get(),0);
-        return;
-    }
-    memcpy(mapped.pData,nm_vertices.data(),bytes);
-    d3d.context->Unmap(nm_vb.Get(),0);
-
-    UINT stride=sizeof(NmVertex), offset=0;
-    ID3D11Buffer *buffer=nm_vb.Get();
-    d3d.context->OMSetRenderTargets(1,d3d.backbuffer_view.GetAddressOf(),nullptr);
-    d3d.context->OMSetBlendState(nm_blend.Get(),nullptr,0xFFFFFFFF);
-    d3d.context->OMSetDepthStencilState(nm_no_depth.Get(),0);
-    d3d.context->IASetInputLayout(nm_layout.Get());
-    d3d.context->IASetVertexBuffers(0,1,&buffer,&stride,&offset);
-    d3d.context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    d3d.context->VSSetShader(nm_vs.Get(),nullptr,0);
-    d3d.context->PSSetShader(nm_ps.Get(),nullptr,0);
-    d3d.context->Draw((UINT)nm_vertices.size(),0);
-
-    // Our direct D3D state changes bypass SM64's state cache.
-    d3d.last_shader_program=nullptr;
-    d3d.last_vertex_buffer_stride=0;
-    d3d.last_blend_state.Reset();
-    d3d.last_depth_test=-1;
-    d3d.last_depth_mask=-1;
-    d3d.last_zmode_decal=-1;
-    d3d.last_primitive_topology=D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
-}
-''', encoding="utf-8")
-
-# Inject the native visual layer into SM64's D3D11 end-of-frame path.
-gfx = GFX / "gfx_direct3d11.cpp"
-patch_once(
-    gfx,
-    "#include <cstdio>\n#include <vector>\n#include <cmath>\n",
-    "#include <cstdio>\n#include <vector>\n#include <cmath>\n#include <algorithm>\n#include <cstring>\n"
-    '#include "native_minecraft/native_minecraft.h"\n',
-)
-patch_once(
-    gfx,
-    "static LARGE_INTEGER last_time, accumulated_time, frequency;\n",
-    '#include "native_minecraft_render.inc"\n\n'
-    "static LARGE_INTEGER last_time, accumulated_time, frequency;\n",
-)
-patch_once(
-    gfx,
-    "static void gfx_d3d11_end_frame(void) {\n}\n",
-    "static void gfx_d3d11_end_frame(void) {\n"
-    "    nm_render_native_minecraft();\n"
-    "}\n",
+required = [
+    RUNTIME / "native_minecraft.h",
+    RUNTIME / "native_minecraft_internal.h",
+    RUNTIME / "input.cpp",
+    RUNTIME / "world.cpp",
+    RUNTIME / "player.cpp",
+    RUNTIME / "bridge.cpp",
+    RUNTIME / "native_minecraft_render.inc",
+    SM64 / "Makefile",
+    SM64 / "src" / "game" / "mario.c",
+    SM64 / "src" / "game" / "camera.c",
+    SM64 / "src" / "game" / "hud.c",
+    GFX / "gfx_dxgi.cpp",
+    GFX / "gfx_direct3d11.cpp",
+]
+missing = [str(p) for p in required if not p.is_file()]
+if missing:
+    raise SystemExit("Native fusion prerequisites missing: " + ", ".join(missing))
+
+if NM.exists():
+    shutil.rmtree(NM)
+NM.mkdir(parents=True)
+
+for name in [
+    "native_minecraft.h",
+    "native_minecraft_internal.h",
+    "input.cpp",
+    "world.cpp",
+    "player.cpp",
+    "bridge.cpp",
+]:
+    shutil.copy2(RUNTIME / name, NM / name)
+
+shutil.copy2(
+    RUNTIME / "native_minecraft_render.inc",
+    GFX / "native_minecraft_render.inc",
 )
 
-# Native movement owns Mario's visible/gameplay pose each game tick.
+# sm64-port only scans explicitly listed source directories. Add the native
+# module directory so the real make build compiles and links every V2 module.
+makefile = SM64 / "Makefile"
+patch_once(
+    makefile,
+    "  SRC_DIRS += src/pc src/pc/gfx src/pc/audio src/pc/controller\n",
+    "  SRC_DIRS += src/pc src/pc/gfx src/pc/audio src/pc/controller src/pc/native_minecraft\n",
+)
+
+# Mario keeps its original state machine for triggers/cutscenes, but its normal
+# controller is neutralized while the native runtime owns locomotion.
 mario = SM64 / "src" / "game" / "mario.c"
 patch_once(
     mario,
     '#include "rumble_init.h"\n',
     '#include "rumble_init.h"\n#include "pc/native_minecraft/native_minecraft.h"\n',
+)
+patch_once(
+    mario,
+    "        mario_reset_bodystate(gMarioState);\n"
+    "        update_mario_inputs(gMarioState);\n",
+    "        mario_reset_bodystate(gMarioState);\n"
+    "        native_minecraft_pre_mario_action(gMarioState);\n"
+    "        update_mario_inputs(gMarioState);\n",
 )
 patch_once(
     mario,
@@ -1013,7 +106,6 @@ patch_once(
     "        }\n",
 )
 
-# Minecraft mouse look becomes the real SM64 camera.
 camera = SM64 / "src" / "game" / "camera.c"
 patch_once(
     camera,
@@ -1029,7 +121,6 @@ patch_once(
     "    gLakituState.lastFrameAction = sMarioCamState->action;\n",
 )
 
-# Hide duplicate Mario HUD. A native Minecraft HUD renderer is added separately.
 hud = SM64 / "src" / "game" / "hud.c"
 patch_once(
     hud,
@@ -1041,11 +132,113 @@ patch_once(
     "void render_hud(void) {\n"
     "    s16 hudDisplayFlags;\n",
     "void render_hud(void) {\n"
-    "    if (native_minecraft_active()) {\n"
-    "        return;\n"
-    "    }\n"
+    "    if (native_minecraft_active()) return;\n"
     "    s16 hudDisplayFlags;\n",
 )
 
-print("Generated one-process Native Minecraft runtime in:", NM)
-print("No Java/Fabric/WebSocket/shared-memory guest is used.")
+# Raw Win32 input arrives at message-pump speed rather than SM64 game-tick speed.
+dxgi = GFX / "gfx_dxgi.cpp"
+patch_once(
+    dxgi,
+    '#include "gfx_pc.h"\n',
+    '#include "gfx_pc.h"\n#include "native_minecraft/native_minecraft.h"\n',
+)
+patch_once(
+    dxgi,
+    "        case WM_ACTIVATEAPP:\n"
+    "            if (dxgi.on_all_keys_up != nullptr) {\n",
+    "        case WM_ACTIVATEAPP:\n"
+    "            native_minecraft_focus_changed(w_param != 0);\n"
+    "            if (dxgi.on_all_keys_up != nullptr) {\n",
+)
+patch_once(
+    dxgi,
+    "        case WM_KEYDOWN:\n"
+    "            onkeydown(w_param, l_param);\n"
+    "            break;\n"
+    "        case WM_KEYUP:\n"
+    "            onkeyup(w_param, l_param);\n"
+    "            break;\n",
+    "        case WM_KEYDOWN:\n"
+    "            native_minecraft_key_event((int)w_param, 1);\n"
+    "            onkeydown(w_param, l_param);\n"
+    "            break;\n"
+    "        case WM_KEYUP:\n"
+    "            native_minecraft_key_event((int)w_param, 0);\n"
+    "            onkeyup(w_param, l_param);\n"
+    "            break;\n"
+    "        case WM_LBUTTONDOWN:\n"
+    "            native_minecraft_mouse_button(0, 1);\n"
+    "            break;\n"
+    "        case WM_LBUTTONUP:\n"
+    "            native_minecraft_mouse_button(0, 0);\n"
+    "            break;\n"
+    "        case WM_RBUTTONDOWN:\n"
+    "            native_minecraft_mouse_button(1, 1);\n"
+    "            break;\n"
+    "        case WM_RBUTTONUP:\n"
+    "            native_minecraft_mouse_button(1, 0);\n"
+    "            break;\n"
+    "        case WM_MBUTTONDOWN:\n"
+    "            native_minecraft_mouse_button(2, 1);\n"
+    "            break;\n"
+    "        case WM_MBUTTONUP:\n"
+    "            native_minecraft_mouse_button(2, 0);\n"
+    "            break;\n"
+    "        case WM_INPUT: {\n"
+    "            RAWINPUT raw{};\n"
+    "            UINT size = sizeof(raw);\n"
+    "            if (GetRawInputData((HRAWINPUT)l_param, RID_INPUT, &raw, &size,\n"
+    "                                sizeof(RAWINPUTHEADER)) == size\n"
+    "                && raw.header.dwType == RIM_TYPEMOUSE) {\n"
+    "                native_minecraft_raw_mouse(\n"
+    "                    raw.data.mouse.lLastX, raw.data.mouse.lLastY);\n"
+    "            }\n"
+    "            break;\n"
+    "        }\n",
+)
+patch_once(
+    dxgi,
+    "        dxgi.h_wnd = CreateWindowW(WINCLASS_NAME, w_title, WS_OVERLAPPEDWINDOW,\n"
+    "            CW_USEDEFAULT, 0, wr.right - wr.left, wr.bottom - wr.top, nullptr, nullptr, nullptr, nullptr);\n"
+    "    });\n\n"
+    "    load_dxgi_library();\n",
+    "        dxgi.h_wnd = CreateWindowW(WINCLASS_NAME, w_title, WS_OVERLAPPEDWINDOW,\n"
+    "            CW_USEDEFAULT, 0, wr.right - wr.left, wr.bottom - wr.top, nullptr, nullptr, nullptr, nullptr);\n"
+    "    });\n\n"
+    "    RAWINPUTDEVICE nativeMouse{};\n"
+    "    nativeMouse.usUsagePage = 0x01;\n"
+    "    nativeMouse.usUsage = 0x02;\n"
+    "    nativeMouse.dwFlags = 0;\n"
+    "    nativeMouse.hwndTarget = dxgi.h_wnd;\n"
+    "    RegisterRawInputDevices(&nativeMouse, 1, sizeof(nativeMouse));\n\n"
+    "    load_dxgi_library();\n",
+)
+
+d3d = GFX / "gfx_direct3d11.cpp"
+patch_once(
+    d3d,
+    "#include <cstdio>\n#include <vector>\n#include <cmath>\n",
+    "#include <cstdio>\n#include <vector>\n#include <cmath>\n"
+    "#include <algorithm>\n#include <cstring>\n"
+    '#include "native_minecraft/native_minecraft.h"\n',
+)
+patch_once(
+    d3d,
+    "static LARGE_INTEGER last_time, accumulated_time, frequency;\n",
+    '#include "native_minecraft_render.inc"\n\n'
+    "static LARGE_INTEGER last_time, accumulated_time, frequency;\n",
+)
+patch_once(
+    d3d,
+    "static void gfx_d3d11_end_frame(void) {\n}\n",
+    "static void gfx_d3d11_end_frame(void) {\n"
+    "    nm_render_native_minecraft();\n"
+    "}\n",
+)
+
+print("Installed modular Native Minecraft V2 into:", NM)
+print("  modules: input / player / world / bridge")
+print("  renderer: depth-aware world pass + independent HUD/inventory pass")
+print("  input: Win32 raw mouse + event-driven keys/buttons")
+print("  transport: none (single process)")

@@ -67,7 +67,7 @@ contains(host, "um_passthrough_neutralize_controller", "Mario controller disable
 contains(host, "um_passthrough_apply_mario_proxy", "Mario is progression proxy for Steve")
 contains(host, "um_passthrough_override_camera", "Minecraft look owns normal SM64 camera")
 contains(host, "g_mcCamera", "SM64 consumes vanilla Minecraft camera position")
-contains(host, '"mccam"', "SM64 accepts exact Minecraft camera pose")
+contains(host, "mccam", "SM64 accepts exact Minecraft camera pose")
 contains(host, "ACT_GROUP_CUTSCENE", "SM64 cutscene authority handoff")
 contains(host, "find_water_level", "SM64 water volumes are sampled into Minecraft")
 contains(host, "water", "SM64 water protocol is emitted")
@@ -124,7 +124,7 @@ contains(guest_world_bridge, "healthDelta", "SM64 damage/healing is applied to r
 
 guest_camera = ROOT / "generated" / "minecraft-guest" / "src" / "client" / "java" / "dev" / "rehan" / "passthrough" / "client" / "mixin" / "CameraMixin.java"
 guest_common_mixins = ROOT / "generated" / "minecraft-guest" / "src" / "main" / "resources" / "passthrough.mixins.json"
-contains(guest_camera, '"mccam"', "vanilla Minecraft camera pose is published to SM64")
+contains(guest_camera, "mccam", "vanilla Minecraft camera pose is published to SM64")
 contains(guest_camera, "if (p.drive())", "Minecraft camera remains vanilla while it drives SM64")
 absent(guest_common_mixins, '"PlayerMixin"', "GTA noPhysics ghost-player mixin removed for real Minecraft collision")
 

@@ -3,7 +3,7 @@
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SM64 = ROOT / "vendor" / "sm64-port"
+SM64 = ROOT / "vendor" / "sm64coopdx"
 UM = ROOT / "vendor" / "universal-modder"
 checks = []
 
@@ -40,10 +40,10 @@ ref = UM / "examples" / "minecraft-gta5-passthrough" / "gta" / "src"
 same(ref / "ws.cpp", SM64 / "src" / "pc" / "ws.cpp", "Universal Modder ws.cpp verbatim")
 same(ref / "ws.h", SM64 / "src" / "pc" / "ws.h", "Universal Modder ws.h verbatim")
 
-contains(pc, "um_passthrough_start", "SM64 starts real UM link")
-contains(pc, "um_passthrough_before_frame", "SM64 polls guest before game loop")
-contains(pc, "um_passthrough_frame", "SM64 publishes host state every frame")
-contains(pc, "um_passthrough_stop", "SM64 stops UM link")
+contains(pc, "um_passthrough_start", "SM64CoopDX starts real UM link")
+contains(pc, "um_passthrough_before_frame", "SM64CoopDX polls guest before game loop")
+contains(pc, "um_passthrough_frame", "SM64CoopDX publishes host state every frame")
+contains(pc, "um_passthrough_stop", "SM64CoopDX stops UM link")
 
 contains(host, "127.0.0.1", "localhost-only UM transport")
 contains(host, '\\"t\\":\\"cam\\"', "UM camera protocol")

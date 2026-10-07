@@ -86,6 +86,103 @@ patch_once(
     "        }\n",
 )
 
+
+# Minecraft blocks are real collision for the SM64 side too.  This ports the
+# dynamic-surface half of the earlier bridge, but keeps Universal Modder's
+# Minecraft guest as the source of truth for blocks.
+object_list_processor = SM64 / "src" / "game" / "object_list_processor.c"
+surface_load_h = SM64 / "src" / "engine" / "surface_load.h"
+surface_load_c = SM64 / "src" / "engine" / "surface_load.c"
+
+patch_once(
+    object_list_processor,
+    '#include "platform_displacement.h"\n',
+    '#include "platform_displacement.h"\n#include "pc/sm64_passthrough.h"\n',
+)
+patch_once(
+    object_list_processor,
+    "    update_terrain_objects();\n\n"
+    "    // If Mario was touching a moving platform",
+    "    update_terrain_objects();\n"
+    "    um_passthrough_load_block_surfaces();\n\n"
+    "    // If Mario was touching a moving platform",
+)
+
+patch_once(
+    surface_load_h,
+    "void load_object_collision_model(void);\n",
+    "void load_object_collision_model(void);\n"
+    "void crossmod_add_dynamic_box(\n"
+    "    s16 minX, s16 minY, s16 minZ,\n"
+    "    s16 maxX, s16 maxY, s16 maxZ\n"
+    ");\n",
+)
+
+surface_text = surface_load_c.read_text(encoding="utf-8")
+if "void crossmod_add_dynamic_box(" not in surface_text:
+    surface_text += r"""
+
+/*
+ * Universal Modder Minecraft block collision.
+ *
+ * Each Minecraft block is turned into a native SM64 dynamic collision box
+ * after normal moving-platform collision is loaded for the frame.
+ */
+static void crossmod_add_dynamic_triangle(
+        s16 x1, s16 y1, s16 z1,
+        s16 x2, s16 y2, s16 z2,
+        s16 x3, s16 y3, s16 z3
+) {
+    s16 vertexData[9] = {
+        x1, y1, z1,
+        x2, y2, z2,
+        x3, y3, z3
+    };
+    s16 indices[3] = { 0, 1, 2 };
+    s16 *cursor = indices;
+
+    struct Surface *surface = read_surface_data(vertexData, &cursor);
+    if (surface == NULL) {
+        return;
+    }
+
+    surface->type = SURFACE_DEFAULT;
+    surface->flags |= SURFACE_FLAG_DYNAMIC;
+    surface->room = 0;
+    surface->object = NULL;
+    add_surface(surface, TRUE);
+}
+
+void crossmod_add_dynamic_box(
+        s16 x0, s16 y0, s16 z0,
+        s16 x1, s16 y1, s16 z1
+) {
+    if (x0 >= x1 || y0 >= y1 || z0 >= z1) {
+        return;
+    }
+
+    crossmod_add_dynamic_triangle(x0,y0,z0, x1,y0,z0, x1,y0,z1);
+    crossmod_add_dynamic_triangle(x0,y0,z0, x1,y0,z1, x0,y0,z1);
+
+    crossmod_add_dynamic_triangle(x0,y1,z0, x1,y1,z1, x1,y1,z0);
+    crossmod_add_dynamic_triangle(x0,y1,z0, x0,y1,z1, x1,y1,z1);
+
+    crossmod_add_dynamic_triangle(x0,y0,z0, x0,y1,z0, x1,y1,z0);
+    crossmod_add_dynamic_triangle(x0,y0,z0, x1,y1,z0, x1,y0,z0);
+
+    crossmod_add_dynamic_triangle(x0,y0,z1, x1,y0,z1, x1,y1,z1);
+    crossmod_add_dynamic_triangle(x0,y0,z1, x1,y1,z1, x0,y1,z1);
+
+    crossmod_add_dynamic_triangle(x0,y0,z0, x0,y0,z1, x0,y1,z1);
+    crossmod_add_dynamic_triangle(x0,y0,z0, x0,y1,z1, x0,y1,z0);
+
+    crossmod_add_dynamic_triangle(x1,y0,z0, x1,y1,z0, x1,y1,z1);
+    crossmod_add_dynamic_triangle(x1,y0,z0, x1,y1,z1, x1,y0,z1);
+}
+"""
+    surface_load_c.write_text(surface_text, encoding="utf-8")
+
+
 # Minecraft renders the visible survival HUD while attached.
 hud = SM64 / "src" / "game" / "hud.c"
 patch_once(
@@ -285,5 +382,5 @@ print("Installed real Universal Modder Minecraft passthrough into SM64.")
 print("  guest: Universal Modder minecraft-gta5-passthrough/mc")
 print("  transport: Universal Modder ws.cpp/ws.h")
 print("  input: SM64 Win32 raw input -> real Minecraft key mappings")
-print("  collision: SM64 floor/ceiling/wall barriers -> Minecraft")
+print("  collision: SM64 surfaces -> Minecraft, Minecraft blocks -> native SM64 dynamic surfaces")
 print("  render: MCPT world depth-tested against SM64 + HUD overlay")

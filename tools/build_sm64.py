@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Build the clean Universal Modder SM64 host on Windows through MSYS2 MinGW64."""
+"""Build the clean Universal Modder SM64CoopDX host on Windows through MSYS2 MinGW64."""
 from pathlib import Path
 import os, shutil, subprocess, sys
-from patch_sm64_toolchain import patch as patch_sm64_toolchain
 
 ROOT=Path(__file__).resolve().parents[1]
-SM64=ROOT/"vendor"/"sm64-port"
+SM64=ROOT/"vendor"/"sm64coopdx"
+RUN_STATE=ROOT/"run"/"sm64"
+STATE_FILES=("sm64_save_file.bin","sm64config.txt")
 ROM_CANDIDATES=[
     ROOT/"rom"/"baserom.us.z64",
     ROOT/"baserom.us.z64",
@@ -20,14 +21,36 @@ if not (SM64/"Makefile").is_file():
     raise SystemExit("Run setup-windows.bat first.")
 
 
-def prepare_clean_vendor() -> None:
-    """Rebuild the generated host from a pristine sm64-port checkout."""
-    if not (SM64 / ".git").is_dir():
-        raise SystemExit("vendor/sm64-port is not a Git checkout. Run setup-windows.bat first.")
+def preserve_run_state() -> None:
+    RUN_STATE.mkdir(parents=True, exist_ok=True)
+    build_dir = SM64 / "build" / "us_pc"
+    if build_dir.is_dir():
+        for name in STATE_FILES:
+            src = build_dir / name
+            if src.is_file():
+                shutil.copy2(src, RUN_STATE / name)
 
-    # vendor/sm64-port is disposable generated state. Resetting + cleaning here
+
+def restore_run_state() -> None:
+    build_dir = SM64 / "build" / "us_pc"
+    if not build_dir.is_dir():
+        return
+    for name in STATE_FILES:
+        src = RUN_STATE / name
+        if src.is_file():
+            shutil.copy2(src, build_dir / name)
+
+
+def prepare_clean_vendor() -> None:
+    """Rebuild the generated host from a pristine SM64CoopDX checkout."""
+    if not (SM64 / ".git").is_dir():
+        raise SystemExit("vendor/sm64coopdx is not a Git checkout. Run setup-windows.bat first.")
+
+    preserve_run_state()
+
+    # vendor/sm64coopdx is disposable generated state. Resetting + cleaning here
     # prevents old untracked crossmod_bridge.c/crossmod_ws_api.* files from
-    # silently being picked up by sm64-port's wildcard Makefile.
+    # silently being picked up by SM64CoopDX's wildcard Makefile.
     subprocess.run(["git", "reset", "--hard", "HEAD"], cwd=SM64, check=True)
     subprocess.run(["git", "clean", "-fdx"], cwd=SM64, check=True)
 
@@ -52,7 +75,6 @@ def prepare_clean_vendor() -> None:
 
 
 prepare_clean_vendor()
-patch_sm64_toolchain(SM64)
 
 shutil.copy2(rom,SM64/"baserom.us.z64")
 
@@ -82,8 +104,12 @@ cmd=(
 print("+",bash,"-lc",cmd)
 subprocess.run([str(bash),"-lc",cmd],check=True)
 
+restore_run_state()
+
 build=SM64/"build"/"us_pc"
+build.mkdir(parents=True, exist_ok=True)
+shutil.copy2(rom, build/"baserom.us.z64")
 exes=sorted(build.glob("*.exe")) if build.is_dir() else []
 if not exes:
     raise SystemExit("Build finished but no SM64 .exe was found in build/us_pc.")
-print("SM64 host built:",exes[0])
+print("SM64CoopDX host built:",exes[0])

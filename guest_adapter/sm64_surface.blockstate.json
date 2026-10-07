@@ -1,0 +1,9 @@
+{
+  "multipart": [
+    {
+      "apply": {
+        "model": "passthrough:block/sm64_surface"
+      }
+    }
+  ]
+}

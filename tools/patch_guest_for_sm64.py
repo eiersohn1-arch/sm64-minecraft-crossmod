@@ -113,7 +113,7 @@ replace_once(
     world_bridge,
     '\t/** Run a command as the server (op). Results go to the log, not to chat (send_command_feedback is off). */\n'
     '\tpublic static void command(final String command) {\n',
-    '\t/** Switch the persistent SM64 terrain-edit context and remove the previous level\\'s streamed surface cells. */\n'
+    "\t/** Switch the persistent SM64 terrain-edit context and remove the previous level's streamed surface cells. */\n"
     '\tpublic static void context(final String key) {\n'
     '\t\tMinecraftServer s = server;\n'
     '\t\tif (s == null) {\n'

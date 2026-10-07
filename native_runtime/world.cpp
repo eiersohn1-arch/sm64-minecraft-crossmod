@@ -4,6 +4,12 @@
 #include <fstream>
 #include <sstream>
 
+#define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
 extern "C" {
 #include "engine/surface_collision.h"
 }

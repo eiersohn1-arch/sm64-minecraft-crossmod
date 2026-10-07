@@ -27,7 +27,7 @@ int native_minecraft_get_block(int index, int *x, int *y, int *z, int *type);
 void native_minecraft_get_render_state(
     float *x, float *y, float *z,
     float *yaw, float *pitch,
-    int *first_person, int *selected_slot
+    int *first_person, int *selected_slot, int *inventory_open
 );
 
 #ifdef __cplusplus

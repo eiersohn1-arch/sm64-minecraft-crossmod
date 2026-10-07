@@ -65,6 +65,20 @@ Universal Modder's existing block-change stream is consumed by the SM64 host. Ne
 
 That means placement is not just visual composition: Minecraft owns the block, and SM64 receives physical collision for it too.
 
+### Moving collision
+
+SM64 dynamic collision cannot be sampled only once. The host periodically sends a complete nearby `surfacebegin -> ground/water -> surfaceend` snapshot. The guest builds the fresh desired set first and only then removes stale host-managed cells. This lets moving platforms and elevators move under Steve without clearing player-built Minecraft blocks or resurrecting mined SM64 cells.
+
+### Water
+
+For every sampled SM64 column, the host compares floor height with `find_water_level()`. Water volume between the floor and the SM64 water plane is mirrored using real `minecraft:water` blocks. Host-managed water is tracked separately from player-created water and reconciled with the same snapshots.
+
+Minecraft therefore remains locomotion authority while submerged; Steve uses Minecraft swimming/buoyancy instead of switching to Mario's swimming movement.
+
+### Health
+
+The authoritative Minecraft pose packet also carries Minecraft health and food. After native SM64 interaction/health processing, the host converts Mario-side damage/healing into a signed health delta for the real Minecraft player, then mirrors Minecraft's resulting health back to the invisible Mario proxy. This keeps the visible Minecraft hearts meaningful while native SM64 enemies/hazards still matter.
+
 The host samples nearby:
 
 - `find_floor()`
@@ -83,7 +97,9 @@ Minecraft still owns movement physics, but the host maps Minecraft controls into
 - left/right click -> B
 - Shift -> Z
 
-Analog stick input remains zero. This lets native SM64 interaction/action code continue to process doors, switches, breakables and other mission mechanics without re-enabling Mario locomotion.
+Analog stick input remains zero during ordinary Minecraft-authoritative movement. This lets native SM64 interaction/action code continue to process doors, switches, breakables and other mission mechanics without re-enabling Mario locomotion.
+
+When SM64 intentionally owns an object/automatic action, the normal PC-port WASD stick is left intact, while Space/click/Shift are still bridged to A/B/Z. That keeps Bowser/object/door state machines controllable without asking the player to switch to a second set of keys.
 
 ## Input
 

@@ -99,6 +99,29 @@ struct McPose {
 };
 static McPose s_mc;
 
+static LONG WINAPI crossmod_crash_filter(EXCEPTION_POINTERS *info) {
+    FILE *log = std::fopen("crossmod-crash.log", "a");
+    if (log != nullptr) {
+        const DWORD code = info && info->ExceptionRecord
+            ? info->ExceptionRecord->ExceptionCode : 0;
+        const void *address = info && info->ExceptionRecord
+            ? info->ExceptionRecord->ExceptionAddress : nullptr;
+        std::fprintf(
+            log,
+            "SM64 crossmod crash: code=0x%08lX address=%p frame=%llu "
+            "mc_valid=%d level=%d area=%d\\n",
+            static_cast<unsigned long>(code),
+            address,
+            s_frame,
+            s_mc.valid ? 1 : 0,
+            gCurrLevelNum,
+            gCurrAreaIndex
+        );
+        std::fclose(log);
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 static bool host_has_focus() {
     HWND hwnd = GetForegroundWindow();
     if (!hwnd) return false;
@@ -335,6 +358,7 @@ static void publish_ground() {
 }
 
 void um_passthrough_start(void) {
+    SetUnhandledExceptionFilter(crossmod_crash_filter);
     s_ws.start("127.0.0.1", 25599);
 }
 

@@ -48,6 +48,14 @@ contains(host, "mcpos", "Minecraft authoritative pose feedback")
 contains(host, "find_floor", "SM64 floor collision sampled")
 contains(host, "find_ceil", "SM64 ceiling collision sampled")
 contains(host, "find_wall_collisions", "SM64 wall collision sampled")
+contains(host, "g_worldOffsetX", "SM64 levels use isolated Minecraft coordinate zones")
+contains(host, '"surfacectx"', "host selects persistent SM64 terrain-edit context")
+contains(host, '"blocksync"', "placed Minecraft blocks are resynced after SM64 warps")
+contains(host, "g_minecraftBlocks", "Minecraft blocks tracked on SM64 host")
+contains(host, "crossmod_add_dynamic_box", "Minecraft blocks become native SM64 collision")
+contains(host, "A_BUTTON", "Minecraft jump bridges to SM64 semantic A")
+contains(host, "B_BUTTON", "Minecraft attack/use bridges to SM64 semantic B")
+contains(host, "Z_TRIG", "Minecraft sneak bridges to SM64 semantic Z")
 contains(host, "um_passthrough_neutralize_controller", "Mario controller disabled during MC authority")
 contains(host, "um_passthrough_apply_mario_proxy", "Mario is progression proxy for Steve")
 contains(host, "um_passthrough_override_camera", "Minecraft look owns normal SM64 camera")
@@ -76,6 +84,21 @@ contains(SM64 / "src" / "game" / "mario.c", "um_passthrough_neutralize_controlle
 contains(SM64 / "src" / "game" / "mario.c", "um_passthrough_apply_mario_proxy", "Mario proxy synced")
 contains(SM64 / "src" / "game" / "camera.c", "um_passthrough_override_camera", "camera hook installed")
 contains(SM64 / "src" / "game" / "hud.c", "um_passthrough_connected", "duplicate SM64 HUD hidden")
+contains(SM64 / "src" / "game" / "object_list_processor.c", "um_passthrough_load_block_surfaces", "Minecraft block collision loaded after terrain objects")
+contains(SM64 / "src" / "engine" / "surface_load.c", "crossmod_add_dynamic_box", "native SM64 dynamic block boxes installed")
+
+guest_surface = ROOT / "generated" / "minecraft-guest" / "src" / "main" / "java" / "dev" / "rehan" / "passthrough" / "HostBlocks.java"
+guest_surface_state = ROOT / "generated" / "minecraft-guest" / "src" / "main" / "java" / "dev" / "rehan" / "passthrough" / "HostSurfaceState.java"
+guest_world_bridge = ROOT / "generated" / "minecraft-guest" / "src" / "main" / "java" / "dev" / "rehan" / "passthrough" / "WorldBridge.java"
+guest_host_link = ROOT / "generated" / "minecraft-guest" / "src" / "client" / "java" / "dev" / "rehan" / "passthrough" / "client" / "HostLink.java"
+contains(guest_surface, "SM64_SURFACE", "real breakable technical SM64 surface block registered")
+contains(guest_surface, ".strength(0.8F, 3.0F)", "SM64 host terrain is survival-breakable")
+contains(guest_surface_state, "sm64-surface-breaks", "mined SM64 cells persist on disk")
+contains(guest_world_bridge, "HostSurfaceState.mined", "ground streaming respects mined SM64 cells")
+contains(guest_world_bridge, "HostSurfaceState.markMined", "breaking host surface creates persistent tombstone")
+contains(guest_world_bridge, '"surfacebreak"', "host surface breaks are emitted as cross-game events")
+contains(guest_world_bridge, "HostBlocks.SM64_SURFACE", "Universal Modder ground uses interactive host surface instead of barrier")
+contains(guest_host_link, '"surfacectx"', "Universal Modder link accepts SM64 surface contexts")
 
 guest_input = ROOT / "generated" / "minecraft-guest" / "src" / "client" / "java" / "dev" / "rehan" / "passthrough" / "client" / "ClientInput.java"
 contains(guest_input, "MouseButtonEvent", "real Minecraft GUI receives mouse events")

@@ -15,6 +15,7 @@ int native_minecraft_active(void);
 int native_minecraft_has_authority(void);
 int native_minecraft_first_person(void);
 int native_minecraft_selected_slot(void);
+int native_minecraft_pointer_locked(void);
 
 void native_minecraft_key_event(int vk, int down);
 void native_minecraft_mouse_button(int button, int down);

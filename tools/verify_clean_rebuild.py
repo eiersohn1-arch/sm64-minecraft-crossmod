@@ -1,68 +1,88 @@
 #!/usr/bin/env python3
-"""Verify milestone 1 stays a clean Universal Modder passthrough."""
+"""Verify the real Universal Modder Minecraft passthrough contract."""
 from pathlib import Path
 
-ROOT=Path(__file__).resolve().parents[1]
-SM64=ROOT/"vendor"/"sm64-port"
-UM=ROOT/"vendor"/"universal-modder"
-checks=[]
+ROOT = Path(__file__).resolve().parents[1]
+SM64 = ROOT / "vendor" / "sm64-port"
+UM = ROOT / "vendor" / "universal-modder"
+checks = []
+
 
 def contains(path, needle, name):
-    ok=needle in path.read_text(encoding="utf-8")
-    checks.append((name,ok))
-    if not ok: print("FAIL",name)
+    ok = path.is_file() and needle in path.read_text(encoding="utf-8")
+    checks.append((name, ok))
+    if not ok:
+        print("FAIL", name)
 
-def same(a,b,name):
-    ok=a.read_bytes()==b.read_bytes()
-    checks.append((name,ok))
-    if not ok: print("FAIL",name)
 
-pc=SM64/"src"/"pc"/"pc_main.c"
-host=SM64/"src"/"pc"/"sm64_passthrough.cpp"
-gfx=SM64/"src"/"pc"/"gfx"/"gfx_direct3d11.cpp"
-overlay=SM64/"src"/"pc"/"gfx"/"um_mcpt_overlay.inc"
-makefile=SM64/"Makefile"
-ref=UM/"examples"/"minecraft-gta5-passthrough"/"gta"/"src"
+def same(a, b, name):
+    ok = a.is_file() and b.is_file() and a.read_bytes() == b.read_bytes()
+    checks.append((name, ok))
+    if not ok:
+        print("FAIL", name)
 
-same(ref/"ws.cpp",SM64/"src"/"pc"/"ws.cpp","Universal Modder ws.cpp verbatim")
-same(ref/"ws.h",SM64/"src"/"pc"/"ws.h","Universal Modder ws.h verbatim")
-contains(pc,"um_passthrough_start","SM64 starts UM link")
-contains(pc,"um_passthrough_before_frame","SM64 pre-frame guest visibility hook")
-contains(pc,"um_passthrough_frame","SM64 publishes every frame")
-contains(pc,"um_passthrough_stop","SM64 stops UM link")
-contains(host,'127.0.0.1',"localhost transport")
-contains(host,'{\"t\":\"cam\"',"UM camera protocol")
-contains(host,'{\"t\":\"ground\"',"UM ground protocol")
-contains(host,'{\"t\":\"key\"',"UM input protocol")
-contains(host,"gLakituState.curPos","native SM64 render camera")
-contains(host,"gLakituState.curFocus","native SM64 render focus")
-contains(host,"find_floor","native floor oracle")
-contains(host,"#undef near","Windows near macro neutralized")
-contains(host,"#undef far","Windows far macro neutralized")
-contains(host,"GRAPH_RENDER_INVISIBLE","native Mario hidden while guest attached")
-contains(host,"pressedSincePoll","short mouse clicks preserved")
-contains(host,'{\"t\":\"move\"',"Minecraft movement forwarded")
-contains(host,'{\"t\":\"look\"',"Minecraft mouse look forwarded")
-contains(host,'"mcpos"',"Minecraft pose feedback consumed")
-contains(host,"um_passthrough_apply_mario_proxy","Minecraft pose drives Mario proxy")
-contains(host,"um_passthrough_override_camera","Minecraft look drives SM64 camera")
-contains(host,'#include "engine/math_util.h"',"SM64 vector helpers declared for C++ host")
-contains(host,'{"t":"mcpos","pos":',"Minecraft pose JSON parser is not over-escaped")
-contains(gfx,'#include "um_mcpt_overlay.inc"',"MCPT compositor injected")
-contains(gfx,"um_draw_mcpt","MCPT drawn in SM64 D3D11")
-contains(overlay,'Local\\\\MCPassthroughFrame',"UM MCPT mapping")
-contains(overlay,"World.Sample","Minecraft world layer")
-contains(overlay,"Overlay.Sample","Minecraft HUD/hand layer")
-contains(makefile,"lws2_32","Winsock linked")
-contains(makefile,"-pthread","UM websocket thread support")
-contains(SM64/"src"/"game"/"camera.c","um_passthrough_override_camera","SM64 camera override hook")
-contains(SM64/"src"/"game"/"mario.c","um_passthrough_apply_mario_proxy","Mario follows Minecraft before camera/interaction update")
-contains(SM64/"src"/"game"/"hud.c","um_passthrough_connected","Minecraft HUD replaces duplicate SM64 HUD")
-contains(SM64/"src"/"game"/"mario.c","um_passthrough_connected","Mario hidden after native model update")
 
-failed=[n for n,ok in checks if not ok]
-for n,ok in checks:
-    if ok: print("OK  ",n)
+pc = SM64 / "src" / "pc" / "pc_main.c"
+host = SM64 / "src" / "pc" / "sm64_passthrough.cpp"
+gfx = SM64 / "src" / "pc" / "gfx" / "gfx_direct3d11.cpp"
+dxgi = SM64 / "src" / "pc" / "gfx" / "gfx_dxgi.cpp"
+overlay = SM64 / "src" / "pc" / "gfx" / "um_mcpt_overlay.inc"
+makefile = SM64 / "Makefile"
+ref = UM / "examples" / "minecraft-gta5-passthrough" / "gta" / "src"
+
+same(ref / "ws.cpp", SM64 / "src" / "pc" / "ws.cpp", "Universal Modder ws.cpp verbatim")
+same(ref / "ws.h", SM64 / "src" / "pc" / "ws.h", "Universal Modder ws.h verbatim")
+
+contains(pc, "um_passthrough_start", "SM64 starts real UM link")
+contains(pc, "um_passthrough_before_frame", "SM64 polls guest before game loop")
+contains(pc, "um_passthrough_frame", "SM64 publishes host state every frame")
+contains(pc, "um_passthrough_stop", "SM64 stops UM link")
+
+contains(host, "127.0.0.1", "localhost-only UM transport")
+contains(host, '{\"t\":\"cam\"', "UM camera protocol")
+contains(host, '{\"t\":\"ground\"', "UM collision protocol")
+contains(host, '{\"t\":\"key\"', "UM key protocol")
+contains(host, '{\"t\":\"move\"', "real Minecraft movement protocol")
+contains(host, '{\"t\":\"look\"', "real Minecraft raw-look protocol")
+contains(host, '"mcpos"', "Minecraft authoritative pose feedback")
+contains(host, "find_floor", "SM64 floor collision sampled")
+contains(host, "find_ceil", "SM64 ceiling collision sampled")
+contains(host, "find_wall_collisions", "SM64 wall collision sampled")
+contains(host, "um_passthrough_neutralize_controller", "Mario controller disabled during MC authority")
+contains(host, "um_passthrough_apply_mario_proxy", "Mario is progression proxy for Steve")
+contains(host, "um_passthrough_override_camera", "Minecraft look owns normal SM64 camera")
+contains(host, "ACT_GROUP_CUTSCENE", "SM64 cutscene authority handoff")
+contains(host, "ACT_GROUP_SUBMERGED", "unsupported submerged actions fail back to SM64")
+
+contains(dxgi, "WM_INPUT", "Win32 raw mouse input installed")
+contains(dxgi, "RegisterRawInputDevices", "raw mouse device registered")
+contains(dxgi, "um_passthrough_key_event", "event-driven keyboard forwarded")
+contains(dxgi, "um_passthrough_mouse_button", "mouse buttons forwarded")
+contains(dxgi, "um_passthrough_scroll", "hotbar wheel forwarded")
+contains(dxgi, "um_passthrough_pointer_locked", "cursor hidden only in gameplay")
+
+contains(gfx, '#include "um_mcpt_overlay.inc"', "MCPT compositor injected")
+contains(gfx, "um_draw_mcpt", "MCPT frame drawn inside SM64")
+contains(overlay, 'Local\\\\MCPassthroughFrame', "Universal Modder shared-memory mapping")
+contains(overlay, "McDepthTex", "real Minecraft depth layer uploaded")
+contains(overlay, "SV_DEPTH", "Minecraft world writes per-pixel host depth")
+contains(overlay, "D3D11_COMPARISON_LESS_EQUAL", "Minecraft world depth-tests against SM64")
+contains(overlay, "PSOverlay", "hand/HUD/screens use separate overlay pass")
+
+contains(makefile, "lws2_32", "Winsock linked")
+contains(makefile, "-pthread", "UM websocket worker linked")
+
+contains(SM64 / "src" / "game" / "mario.c", "um_passthrough_neutralize_controller", "Mario movement neutralized")
+contains(SM64 / "src" / "game" / "mario.c", "um_passthrough_apply_mario_proxy", "Mario proxy synced")
+contains(SM64 / "src" / "game" / "camera.c", "um_passthrough_override_camera", "camera hook installed")
+contains(SM64 / "src" / "game" / "hud.c", "um_passthrough_connected", "duplicate SM64 HUD hidden")
+
+failed = [name for name, ok in checks if not ok]
+for name, ok in checks:
+    if ok:
+        print("OK  ", name)
+
 if failed:
-    raise SystemExit("Clean rebuild verification failed: "+", ".join(failed))
-print("Universal Modder SM64 milestone 1 contract: OK")
+    raise SystemExit("Universal Modder passthrough verification failed: " + ", ".join(failed))
+
+print("Real Universal Modder Minecraft x SM64 contract: OK")

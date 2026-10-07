@@ -155,6 +155,10 @@ public static class CrossmodWindow {
     public static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")]
     public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll", SetLastError=true)]
+    public static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT { public int Left, Top, Right, Bottom; }
 }
 "@
 }
@@ -316,6 +320,29 @@ function Start-Sm64 {
     return Start-Process -FilePath $exe.FullName -WorkingDirectory $exe.DirectoryName -PassThru
 }
 
+function Resize-Sm64Widescreen([System.Diagnostics.Process]$Process) {
+    Ensure-WindowApi
+    $deadline = (Get-Date).AddSeconds(20)
+    while ((Get-Date) -lt $deadline) {
+        $Process.Refresh()
+        if ($Process.MainWindowHandle -ne 0) {
+            # Target a 1280x720 CLIENT area. Add normal window chrome margin.
+            # Windows will clamp to the desktop if needed.
+            [CrossmodWindow]::SetWindowPos(
+                $Process.MainWindowHandle,
+                [IntPtr]::Zero,
+                80, 80,
+                1296, 759,
+                0x0004
+            ) | Out-Null
+            Start-Sleep -Milliseconds 300
+            Write-Host "SM64 viewport forced to widescreen (~1280x720 client)." -ForegroundColor DarkGray
+            return
+        }
+        Start-Sleep -Milliseconds 250
+    }
+}
+
 function Focus-Sm64([System.Diagnostics.Process]$Process) {
     Ensure-WindowApi
     $deadline = (Get-Date).AddSeconds(20)
@@ -336,6 +363,7 @@ function Start-Crossmod {
     Move-MinecraftOffscreen
 
     $sm64 = Start-Sm64
+    Resize-Sm64Widescreen $sm64
     Focus-Sm64 $sm64
 
     Write-Host ""

@@ -39,6 +39,9 @@ jobs:
       - name: Install native fusion
         run: python tools/generate_native_minecraft.py
 
+      - name: Run Native Fusion V2 regression contract
+        run: python tools/test_native_v2.py
+
       - name: Verify real sm64-port build graph contains V2 modules
         shell: bash
         run: |

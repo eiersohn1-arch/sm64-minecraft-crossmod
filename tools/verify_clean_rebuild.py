@@ -61,9 +61,9 @@ contains(host, "um_passthrough_apply_mario_proxy", "Mario is progression proxy f
 contains(host, "um_passthrough_override_camera", "Minecraft look owns normal SM64 camera")
 contains(host, "ACT_GROUP_CUTSCENE", "SM64 cutscene authority handoff")
 contains(host, "find_water_level", "SM64 water volumes are sampled into Minecraft")
-contains(host, '"water"', "SM64 water protocol is emitted")
-contains(host, '"surfacebegin"', "moving SM64 collision begins atomic refresh")
-contains(host, '"surfaceend"', "moving SM64 collision completes atomic refresh")
+contains(host, "water", "SM64 water protocol is emitted")
+contains(host, "surfacebegin", "moving SM64 collision begins atomic refresh")
+contains(host, "surfaceend", "moving SM64 collision completes atomic refresh")
 contains(host, "SNAPSHOT_INTERVAL", "moving SM64 terrain is periodically refreshed")
 contains(host, "um_passthrough_sync_health", "native SM64 health changes sync to Minecraft")
 

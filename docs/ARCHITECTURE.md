@@ -1,19 +1,45 @@
-# Architecture contract
+# Native Minecraft fusion architecture
 
-The clean rebuild follows Universal Modder `mashup-mods` Pattern 2.
+This branch follows **Universal Modder mashup Pattern 4: reimplement, then fuse**.
+
+## One process
+
+There is no Fabric guest, WebSocket, shared memory, localhost transport or second
+Minecraft process.  The executable is the SM64 PC port plus a native C++ gameplay
+runtime generated into `src/pc/native_minecraft/`.
 
 ## Authority
-Minecraft owns normal locomotion, look, inventory, item use, mining, placement, hunger and its HUD.
-SM64 owns its world, mission/progression objects, stars, warps, enemies and level rendering.
 
-## Transport
-Control/state stays on 127.0.0.1. High-bandwidth rendered layers use the MCPT shared-memory ring from the Universal Modder worked example.
+The native Minecraft runtime owns:
+- WASD movement
+- jump, sprint and sneak
+- mouse yaw/pitch
+- first/third person
+- hotbar selection
+- Minecraft-style gravity and player dimensions
 
-## Rendering
-Minecraft exports world RGBA + depth before the hand, then exports hand/HUD/screens as a separate transparent overlay. The SM64 host depth-tests the world layer against its own depth and draws the overlay last.
+SM64 still owns:
+- the original world geometry
+- stars, doors, warps, enemies and progression
+- the original save file and level scripts
+
+Mario remains an invisible internal proxy whose position is copied from the native
+Minecraft player so existing SM64 triggers can keep working.
 
 ## Collision
-The host sends nearby walkable/collidable geometry to Minecraft. The guest uses invisible collision so vanilla Minecraft physics remains authoritative. Minecraft-created solids/events are sent back to the host.
 
-## Oracle rule
-Do not add full gameplay until a fake host proves camera alignment, depth occlusion, input and collision. Every later milestone keeps that oracle green.
+The first native milestone feeds SM64 floors, walls and ceilings directly into the
+Minecraft-style controller through SM64's own collision queries.  There is no
+cross-process collision serialization.
+
+## Next native systems
+
+1. block database + raycast placement/breaking;
+2. native block renderer and Steve renderer;
+3. first-person arm + hotbar/inventory UI;
+4. block collision inserted into SM64;
+5. item/tool rules, health/hunger and crafting;
+6. asset converter that reads the user's own Minecraft installation locally.
+
+Minecraft/Mojang assets or source code are never committed.  Any retail assets must
+come from the user's own installation through a local converter.

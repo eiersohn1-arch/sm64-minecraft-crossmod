@@ -216,10 +216,10 @@ function Doctor([switch]$RequireRom, [switch]$RequireBuild) {
     }
 
     if ($RequireBuild) {
-        $buildDir = Join-Path $Root "vendor\sm64-port\build\us_pc"
+        $buildDir = Join-Path $Root "vendor\sm64coopdx\build\us_pc"
         $exe = Get-ChildItem $buildDir -Filter *.exe -ErrorAction SilentlyContinue | Select-Object -First 1
         if (-not $exe) { Fail "SM64 is not built. Run windows-all.bat once." }
-        Write-Host "SM64 host EXE: OK" -ForegroundColor Green
+        Write-Host "SM64CoopDX host EXE: OK" -ForegroundColor Green
     }
 }
 
@@ -288,10 +288,10 @@ function Ensure-FreshBuild {
 function Build {
     Doctor -RequireRom
     Write-Host ""
-    Write-Host "Building SM64 host with Universal Modder passthrough..." -ForegroundColor Cyan
+    Write-Host "Building SM64CoopDX host with Universal Modder passthrough..." -ForegroundColor Cyan
     Invoke-Python @("tools\build_sm64.py")
     Write-BuildStamp
-    Write-Host "SM64 host build complete." -ForegroundColor Green
+    Write-Host "SM64CoopDX host build complete." -ForegroundColor Green
 }
 
 function Start-Guest {
@@ -313,7 +313,7 @@ function Start-Sm64 {
     Doctor -RequireBuild
     $buildDir = Join-Path $Root "vendor\sm64-port\build\us_pc"
     $exe = Get-ChildItem $buildDir -Filter *.exe | Select-Object -First 1
-    Write-Host "Starting SM64 host: $($exe.Name)" -ForegroundColor Cyan
+    Write-Host "Starting SM64CoopDX host: $($exe.Name)" -ForegroundColor Cyan
     return Start-Process -FilePath $exe.FullName -WorkingDirectory $exe.DirectoryName -PassThru
 }
 

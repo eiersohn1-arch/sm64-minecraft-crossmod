@@ -54,6 +54,7 @@ extern "C" void native_minecraft_pre_mario_action(MarioState *m) {
     if (!m || !m->controller) return;
 
     gNm.authority = nm_should_have_authority(m);
+    nm_input_update_pointer_lock();
     if (!gNm.authority) return;
 
     // Prevent the normal SM64 keyboard map from simultaneously driving Mario
@@ -82,6 +83,7 @@ extern "C" void native_minecraft_tick(MarioState *m) {
     }
 
     gNm.authority = nm_should_have_authority(m);
+    nm_input_update_pointer_lock();
 
     if (!gNm.authority) {
         nm_sync_player_from_mario(m);

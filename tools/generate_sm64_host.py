@@ -359,9 +359,55 @@ void um_passthrough_apply_mario_proxy(struct MarioState *m) {
     constexpr float Y0 = 64.0f;
     constexpr float ANGLE = 65536.0f / 360.0f;
 
-    m->pos[0] = static_cast<float>(s_mc.x * SCALE);
-    m->pos[1] = static_cast<float>((s_mc.y - Y0) * SCALE);
-    m->pos[2] = static_cast<float>(-s_mc.z * SCALE);
+    // Never mutate Mario until the entire Minecraft pose has been validated.
+    // A null floor here is fatal later in vanilla mario_update(), which
+    // unconditionally reads gMarioState->floor->type for wind surfaces.
+    if (!std::isfinite(s_mc.x) || !std::isfinite(s_mc.y)
+        || !std::isfinite(s_mc.z) || !std::isfinite(s_mc.vx)
+        || !std::isfinite(s_mc.vy) || !std::isfinite(s_mc.vz)
+        || !std::isfinite(s_mc.yaw) || !std::isfinite(s_mc.pitch)) {
+        s_mc.valid = false;
+        s_spawn_sync_pending = true;
+        s_drive_delay_frames = 6;
+        return;
+    }
+
+    const float nextX = static_cast<float>(s_mc.x * SCALE);
+    const float nextY = static_cast<float>((s_mc.y - Y0) * SCALE);
+    const float nextZ = static_cast<float>(-s_mc.z * SCALE);
+
+    if (std::fabs(nextX) >= LEVEL_BOUNDARY_MAX - 64.0f
+        || std::fabs(nextZ) >= LEVEL_BOUNDARY_MAX - 64.0f
+        || nextY < FLOOR_LOWER_LIMIT + 200.0f
+        || nextY > CELL_HEIGHT_LIMIT - 200.0f) {
+        s_mc.valid = false;
+        s_spawn_sync_pending = true;
+        s_drive_delay_frames = 6;
+        return;
+    }
+
+    struct Surface *nextFloor = nullptr;
+    const float nextFloorHeight = find_floor(
+        nextX, nextY + 300.0f, nextZ, &nextFloor
+    );
+
+    // Minecraft should be standing/jumping above streamed SM64 collision.
+    // If no native SM64 floor exists, fail closed and let the host respawn
+    // Minecraft from Mario's last safe position instead of leaving floor=NULL.
+    if (nextFloor == nullptr || nextFloorHeight <= FLOOR_LOWER_LIMIT
+        || nextY - nextFloorHeight > 650.0f
+        || nextFloorHeight - nextY > 250.0f) {
+        s_mc.valid = false;
+        s_spawn_sync_pending = true;
+        s_drive_delay_frames = 6;
+        return;
+    }
+
+    m->pos[0] = nextX;
+    m->pos[1] = nextY;
+    m->pos[2] = nextZ;
+    m->floor = nextFloor;
+    m->floorHeight = nextFloorHeight;
 
     m->vel[0] = static_cast<float>(s_mc.vx * SCALE);
     m->vel[1] = static_cast<float>(s_mc.vy * SCALE);
@@ -383,10 +429,6 @@ void um_passthrough_apply_mario_proxy(struct MarioState *m) {
     m->marioObj->header.gfx.pos[2] = m->pos[2];
     m->marioObj->header.gfx.angle[1] = m->faceAngle[1];
     m->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;
-
-    m->floorHeight = find_floor(
-        m->pos[0], m->pos[1] + 180.0f, m->pos[2], &m->floor
-    );
 }
 
 void um_passthrough_override_camera(void) {
@@ -438,9 +480,8 @@ void um_passthrough_before_frame(void) {
     poll_guest_messages();
 
     if (gMarioState && gMarioState->marioObj) {
-        if (um_passthrough_minecraft_authority()) {
-            um_passthrough_apply_mario_proxy(gMarioState);
-        }
+        // Do not run collision queries before the native game loop has updated
+        // the area's surface lists. The safe proxy hook runs inside mario.c.
         gMarioState->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;
     }
 }

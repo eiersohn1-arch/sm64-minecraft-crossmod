@@ -94,6 +94,7 @@ bool g_semanticAttackPrev = false;
 bool g_semanticUsePrev = false;
 bool g_semanticSneakPrev = false;
 int g_driveDelayFrames = 0;
+int g_lastMirroredMarioHealth = -1;
 unsigned int g_surfaceSnapshotTick = 0;
 
 struct McPose {
@@ -106,6 +107,8 @@ struct McPose {
     double vz = 0.0;
     float yaw = 0.0f;
     float pitch = 0.0f;
+    float health = 20.0f;
+    int food = 20;
 };
 
 McPose g_mc;
@@ -224,12 +227,14 @@ void poll_guest_messages() {
         const int matched = std::sscanf(
             message.c_str(),
             "{\"t\":\"mcpos\",\"pos\":[%lf,%lf,%lf],"
-            "\"vel\":[%lf,%lf,%lf],\"r\":[%f,%f]",
+            "\"vel\":[%lf,%lf,%lf],\"r\":[%f,%f],"
+            "\"health\":%f,\"food\":%d",
             &pose.x, &pose.y, &pose.z,
             &pose.vx, &pose.vy, &pose.vz,
-            &pose.yaw, &pose.pitch
+            &pose.yaw, &pose.pitch,
+            &pose.health, &pose.food
         );
-        if (matched == 8) {
+        if (matched == 10) {
             pose.valid = std::isfinite(pose.x)
                 && std::isfinite(pose.y)
                 && std::isfinite(pose.z)
@@ -237,7 +242,8 @@ void poll_guest_messages() {
                 && std::isfinite(pose.vy)
                 && std::isfinite(pose.vz)
                 && std::isfinite(pose.yaw)
-                && std::isfinite(pose.pitch);
+                && std::isfinite(pose.pitch)
+                && std::isfinite(pose.health);
             if (pose.valid) g_mc = pose;
         }
     }
@@ -445,6 +451,7 @@ void reset_collision_if_needed() {
     g_collisionSampled.clear();
     g_minecraftBlocks.clear();
     g_mc.valid = false;
+    g_lastMirroredMarioHealth = -1;
     g_spawnSyncPending = true;
     g_driveDelayFrames = 10;
 
@@ -836,6 +843,41 @@ void um_passthrough_apply_mario_proxy(struct MarioState *m) {
     m->marioObj->header.gfx.pos[2] = m->pos[2];
     m->marioObj->header.gfx.angle[1] = m->faceAngle[1];
     m->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;
+}
+
+void um_passthrough_sync_health(struct MarioState *m) {
+    if (!m || !g_ws.connected() || !g_mc.valid) return;
+
+    const float mcHealth = std::clamp(g_mc.health, 0.0f, 20.0f);
+    int targetHealth = 0;
+    if (mcHealth > 0.0f) {
+        targetHealth = static_cast<int>(
+            std::lround(mcHealth / 20.0f * 0x880)
+        );
+        if (targetHealth < 0x100) targetHealth = 0x100;
+        if (targetHealth > 0x880) targetHealth = 0x880;
+    }
+
+    // Native SM64 interactions may have damaged/healed the invisible proxy
+    // since the last Minecraft health sample. Feed that semantic delta back
+    // into the real Minecraft player before restoring Minecraft authority.
+    if (g_lastMirroredMarioHealth >= 0) {
+        const int nativeDelta = m->health - g_lastMirroredMarioHealth;
+        if (std::abs(nativeDelta) >= 0x20) {
+            const float minecraftDelta =
+                static_cast<float>(nativeDelta) / 256.0f * 2.5f;
+            char msg[96];
+            std::snprintf(
+                msg, sizeof(msg),
+                "{\"t\":\"healthdelta\",\"d\":%.4f}",
+                minecraftDelta
+            );
+            g_ws.send(msg);
+        }
+    }
+
+    m->health = static_cast<s16>(targetHealth);
+    g_lastMirroredMarioHealth = targetHealth;
 }
 
 void um_passthrough_override_camera(void) {

@@ -1138,7 +1138,7 @@ void um_passthrough_frame(void) {
 
 int um_passthrough_get_native_avatar(UmNativeAvatarPose *out_pose) {
     if (out_pose == nullptr) return 0;
-    std::memset(out_pose, 0, sizeof(*out_pose));
+    *out_pose = UmNativeAvatarPose{};
 
     if (!g_ws.connected() || !g_mc.valid) {
         return 0;
@@ -1155,7 +1155,7 @@ int um_passthrough_get_native_avatar(UmNativeAvatarPose *out_pose) {
 
 int um_passthrough_get_native_camera(UmNativeCameraPose *out_pose) {
     if (out_pose == nullptr) return 0;
-    std::memset(out_pose, 0, sizeof(*out_pose));
+    *out_pose = UmNativeCameraPose{};
 
     if (!g_ws.connected() || gCamera == nullptr) {
         return 0;

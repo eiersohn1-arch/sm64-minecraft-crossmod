@@ -73,6 +73,7 @@ patch_once(
     "        update_mario_info_for_cam(gMarioState);\n",
     "        update_mario_health(gMarioState);\n"
     "        if (um_passthrough_minecraft_authority()) {\n"
+    "            um_passthrough_sync_health(gMarioState);\n"
     "            um_passthrough_apply_mario_proxy(gMarioState);\n"
     "        }\n"
     "        update_mario_info_for_cam(gMarioState);\n",
